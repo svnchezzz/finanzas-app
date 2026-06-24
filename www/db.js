@@ -510,3 +510,71 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   });
 })();
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MODO SIN INTERNET — Etapa 1: lectura offline + aviso de conexión
+   (La Etapa 2 —registrar sin señal— se agrega después.)
+
+   Qué hace: cada vez que la app carga tus datos con internet, guarda una
+   copia local en el teléfono. Si abres la app SIN internet, muestra esa
+   última copia guardada en vez de quedarse cargando para siempre.
+
+   Requisito: tienes que haber abierto la app CON internet al menos una vez
+   (para que exista esa copia local).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function cacheKey_(){ return 'cf_cache_' + (CURRENT_USER_ID || 'anon'); }
+
+function saveSnapshot_(data){
+  try{ localStorage.setItem(cacheKey_(), JSON.stringify({ at: Date.now(), data: data })); }catch(e){}
+}
+function loadSnapshot_(){
+  try{
+    const raw = localStorage.getItem(cacheKey_());
+    if(!raw) return null;
+    return JSON.parse(raw).data;
+  }catch(e){ return null; }
+}
+
+/* Barra de aviso "sin conexión" (abajo de la pantalla) */
+function ensureOfflineBar_(){
+  if(document.getElementById('offline-bar')) return;
+  const css = document.createElement('style');
+  css.textContent = `
+  #offline-bar{position:fixed;left:0;right:0;bottom:0;z-index:600;display:none;
+    text-align:center;padding:9px 14px;font:600 13px 'Inter',system-ui,sans-serif;
+    color:#fff;background:#B45309;box-shadow:0 -4px 14px rgba(0,0,0,.35);
+    padding-bottom:calc(9px + env(safe-area-inset-bottom,0px))}
+  #offline-bar.show{display:block}`;
+  document.head.appendChild(css);
+  const bar = document.createElement('div');
+  bar.id = 'offline-bar';
+  bar.textContent = 'Sin conexión — mostrando tus últimos datos guardados';
+  document.body.appendChild(bar);
+}
+function setOffline_(isOff){
+  ensureOfflineBar_();
+  const bar = document.getElementById('offline-bar');
+  if(bar) bar.classList.toggle('show', !!isOff);
+}
+
+/* Detectar cuando se va o vuelve la conexión */
+window.addEventListener('online',  function(){ setOffline_(false); });
+window.addEventListener('offline', function(){ setOffline_(true); });
+
+/* Envolver la carga inicial: si no hay internet, usar la copia local */
+(function(){
+  const _origGetInitial = API.getInitialData;
+  API.getInitialData = async function(){
+    try{
+      const data = await _origGetInitial.call(API);
+      saveSnapshot_(data);      // guarda copia local cuando sí hay internet
+      setOffline_(false);
+      return data;
+    }catch(e){
+      const snap = loadSnapshot_();
+      if(snap){ setOffline_(true); return snap; }   // sin internet: muestra la copia
+      throw e;                                       // sin copia y sin internet: no hay nada que mostrar
+    }
+  };
+})();
