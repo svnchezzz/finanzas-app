@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Control Finanzas MS</string>
+    <string name="title_activity_main">Control Finanzas MS</string>
+    <string name="package_name">com.florius.finanzas</string>
+    <string name="custom_url_scheme">com.florius.finanzas</string>
+</resources>
