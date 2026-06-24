@@ -1,46 +1,44 @@
-
-
-
 /*****************************************************************************************
- * CONTROL FINANZAS MS — db.js
- * Capa que conecta el frontend con Supabase. REEMPLAZA a la función gs() que antes
- * usaba google.script.run. Tu app.js NO cambia su forma de llamar al servidor.
+ * CONTROL FINANZAS MS — db.js  (v3: modo sin internet para movimientos)
  *
- * NOVEDAD (v2): exportación a Excel y PDF generada en el cliente (SheetJS + jsPDF),
- * con descarga compatible con navegador y con la app de Android (Capacitor Share).
+ * Capa que conecta el frontend con Supabase. Además:
+ *  - Exporta a Excel/PDF en el cliente (SheetJS + jsPDF).
+ *  - MODO SIN INTERNET para movimientos: puedes agregar, editar y borrar
+ *    movimientos sin señal; se guardan en una "bandeja de salida" local y se
+ *    suben solos al volver el internet, SIN duplicarse (gracias a client_id).
+ *  - Lectura offline: si abres la app sin internet, muestra tu última copia.
  *
  * ───────────────────────────────────────────────────────────────────────────────────
  *  PASO OBLIGATORIO: pega tu publishable key de Supabase en la línea de abajo.
- *  (Settings → API para la URL · API Keys para la Publishable key sb_publishable_...)
  *  NUNCA pongas aquí la Secret key (sb_secret_...).
  * ───────────────────────────────────────────────────────────────────────────────────
  */
 const SUPABASE_URL = 'https://jjluniqevodygaojmhqn.supabase.co';
 const SUPABASE_KEY = 'sb_publishable__VD9Q4rWFEt7fhIj2hw9SA_9n1hv02m';   // <-- la que empieza por sb_publishable_
 
-// Cliente de Supabase (la librería global "supabase" viene del <script> del CDN)
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Paletas por tipo (las mismas que tenías en el servidor; el cliente las espera)
 const PALETTE_BY_TYPE = {
   Income:  ['#10B981','#059669','#047857','#065F46','#14B8A6','#0891B2','#06B6D4','#0ea5e9'],
   Expense: ['#EF4444','#DC2626','#B91C1C','#F43F5E','#F97316','#FB923C','#F59E0B','#FBBF24'],
   Savings: ['#8B5CF6','#7C3AED','#6D28D9','#4F46E5','#6366F1','#3B82F6','#60A5FA','#93C5FD']
 };
 
-let CURRENT_USER_ID = null;   // se llena al iniciar sesión
+let CURRENT_USER_ID = null;
 
-// Mapas español ↔ interno para la exportación
 const TIPO_ES = { Income:'Ingreso', Expense:'Gasto', Savings:'Ahorro' };
 const ORIGEN_ES = { Salary:'Salario', Other:'Otra fuente', Savings:'Ahorro' };
 
-/* ═══════════════ Utilidades de mapeo (fila de la BD → objeto que tu app espera) ═══════════════ */
+/* ═══════════════ Utilidades de mapeo ═══════════════ */
 function today_(){ return new Date().toISOString().slice(0,10); }
 function normSource_(s){ return (s==='Salary'||s==='Other'||s==='Savings') ? s : null; }
 function num_(v){ return Number(v)||0; }
 
+/* IMPORTANTE: el "id" que usa la app para un movimiento es su client_id
+   (código único), no el id interno del servidor. Así todo encaja igual,
+   haya sido creado con o sin internet. */
 function mapTx_(r){ return {
-  id:String(r.id), timestamp:r.created_at, date:r.date, type:r.type, category:r.category,
+  id:String(r.client_id || r.id), timestamp:r.created_at, date:r.date, type:r.type, category:r.category,
   amount:num_(r.amount), color:r.color||'#64748B', source:r.source||'', note:r.note||'' }; }
 
 function mapPending_(r){ return {
@@ -61,84 +59,218 @@ function mapSettings_(r){ return {
   appName:'Control Finanzas MS', palette:[],
   notifyEmail:r?.notify_email||'', notifyEnabled:!!r?.notify_enabled }; }
 
-/* ═══════════════ Utilidades para exportación ═══════════════ */
-function pad2_(n){ return ('0'+n).slice(-2); }
-function fileStamp_(){ const d=new Date(); return d.getFullYear()+pad2_(d.getMonth()+1)+pad2_(d.getDate())+'-'+pad2_(d.getHours())+pad2_(d.getMinutes()); }
-function nowStamp_(){ const d=new Date(); return pad2_(d.getDate())+'/'+pad2_(d.getMonth()+1)+'/'+d.getFullYear()+' '+pad2_(d.getHours())+':'+pad2_(d.getMinutes()); }
-function fmtFechaCorta_(ymd){ const p=String(ymd).split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
-function scopeLabel_(scope){ if(!scope||scope.mode==='all') return 'Toda la base de datos'; return (scope.label?scope.label+'  ·  ':'')+fmtFechaCorta_(scope.start)+' a '+fmtFechaCorta_(scope.end); }
-function money_(n){ n=Math.round(n||0); const st=(window.S&&window.S.settings)||{}; const sym=st.currencySymbol||'$'; const loc=st.locale||'es-CO'; return (n<0?'-':'')+sym+' '+Math.abs(n).toLocaleString(loc); }
-function estadoPend_(p){ if(p.status==='completed') return 'Completado'; if(p.dueDate && p.dueDate<today_()) return 'Vencido'; return 'Pendiente'; }
-function exportFilter_(scope){
-  let all = ((window.S&&window.S.transactions)?window.S.transactions:[]).slice();
-  if (scope && scope.mode==='range' && scope.start && scope.end)
-    all = all.filter(function(t){ return t.date>=scope.start && t.date<=scope.end; });
-  all.sort(function(a,b){ return a.date===b.date ? ((a.timestamp||'')<(b.timestamp||'')?-1:1) : (a.date<b.date?-1:1); });
-  return all;
+/* ═══════════════ Utilidades MODO SIN INTERNET ═══════════════ */
+function uuid_(){
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){
+    const r=Math.random()*16|0, v=c==='x'?r:(r&0x3|0x8); return v.toString(16);
+  });
 }
-function exportPendFilter_(scope){
-  let all = ((window.S&&window.S.pendings)?window.S.pendings:[]).slice();
-  if (scope && scope.mode==='range' && scope.start && scope.end)
-    all = all.filter(function(p){ return p.dueDate && p.dueDate>=scope.start && p.dueDate<=scope.end; });
-  all.sort(function(a,b){ return (a.dueDate||'')<(b.dueDate||'')?-1:1; });
-  return all;
-}
-function summary_(list){
-  function s(t){ return list.filter(function(x){return x.type===t;}).reduce(function(a,x){return a+x.amount;},0); }
-  const ing=s('Income'), gas=s('Expense'), aho=s('Savings');
-  return { ingresos:ing, gastos:gas, ahorro:aho, disponible:ing-gas-aho, n:list.length };
+function isOffline_(){ return (typeof navigator!=='undefined' && navigator.onLine===false); }
+function isNetErr_(e){
+  if (isOffline_()) return true;
+  const m = ((e && (e.message||e.msg)) || '') + '';
+  return /fetch|network|Failed to fetch|NetworkError|timeout|ECONN|ENOTFOUND/i.test(m);
 }
 
-/* ═══════════════ Funciones de datos (equivalentes a las del servidor) ═══════════════ */
+/* Bandeja de salida (cola de cambios pendientes de subir) */
+function qKey_(){ return 'cf_outbox_' + (CURRENT_USER_ID || 'anon'); }
+function loadQueue_(){ try{ return JSON.parse(localStorage.getItem(qKey_())||'[]'); }catch(e){ return []; } }
+function saveQueue_(q){ try{ localStorage.setItem(qKey_(), JSON.stringify(q)); }catch(e){} }
+function enqueue_(item){ const q=loadQueue_(); q.push(item); saveQueue_(q); updateBar_(); }
+function enqueueDelete_(cid){
+  let q=loadQueue_();
+  const teniaAdd = q.some(function(it){ return it.client_id===cid && it.op==='add'; });
+  q = q.filter(function(it){ return it.client_id!==cid; });   // quita add/update previos de ese movimiento
+  if(!teniaAdd) q.push({op:'delete', client_id:cid});          // solo hace falta borrarlo en el servidor si ya estaba (o iba a estar) allá
+  saveQueue_(q); updateBar_();
+}
+
+/* Copia local de tus datos (para abrir la app sin internet) */
+function cacheKey_(){ return 'cf_cache_' + (CURRENT_USER_ID || 'anon'); }
+function saveSnapshotData_(data){ try{ localStorage.setItem(cacheKey_(), JSON.stringify({ at:Date.now(), data:data })); }catch(e){} }
+function loadSnapshot_(){ try{ const raw=localStorage.getItem(cacheKey_()); if(!raw) return null; return JSON.parse(raw).data; }catch(e){ return null; } }
+let _snapT=null;
+function snapSoon_(){ clearTimeout(_snapT); _snapT=setTimeout(snapshotState_, 0); }
+function snapshotState_(){
+  try{
+    const S=window.S; if(!S) return;
+    saveSnapshotData_({ transactions:S.transactions, categories:S.categories, settings:S.settings,
+      pendings:S.pendings, budgets:S.budgets, recurring:S.recurring, goals:S.goals, palettes:S.palettes });
+  }catch(e){}
+}
+
+/* Construcción de datos de un movimiento para el servidor */
+function buildTxPayload_(cid, tx){
+  return { client_id:cid, date:tx.date||today_(), type:tx.type, category:tx.category, amount:num_(tx.amount),
+    color:tx.color||'#64748B', source:normSource_(tx.source), note:tx.note||'' };
+}
+async function txUpsert_(cid, tx){
+  const { data, error } = await sb.from('transactions')
+    .upsert(buildTxPayload_(cid, tx), { onConflict:'client_id' }).select().single();
+  if (error) throw error; return data;
+}
+async function applyOp_(item){
+  if (item.op==='add'){ await txUpsert_(item.client_id, item.payload); }
+  else if (item.op==='update'){
+    const { error } = await sb.from('transactions').update(buildTxPayload_(item.client_id, item.payload)).eq('client_id', item.client_id);
+    if (error) throw error;
+  } else if (item.op==='delete'){
+    const { error } = await sb.from('transactions').delete().eq('client_id', item.client_id);
+    if (error) throw error;
+  }
+}
+let _flushing=false;
+async function flushQueue_(){
+  if (_flushing || isOffline_()) return;
+  let q=loadQueue_();
+  if (!q.length){ updateBar_(); return; }
+  _flushing=true; updateBar_();
+  let subioAlgo=false;
+  try{
+    while(q.length){
+      const item=q[0];
+      try{ await applyOp_(item); subioAlgo=true; }
+      catch(e){
+        if (isNetErr_(e)) break;                       // se fue el internet: parar y reintentar luego
+        if (window.toast) toast('Un cambio no se pudo subir y se omitió','err');
+        console.error('Cambio omitido al sincronizar:', item, e);
+      }
+      q.shift(); saveQueue_(q);
+    }
+  } finally {
+    _flushing=false; updateBar_();
+  }
+  // Al terminar de subir: recargar datos frescos del servidor y repintar la pantalla
+  if (subioAlgo && !loadQueue_().length && !isOffline_()){
+    try{
+      const data = await fetchAll_();
+      saveSnapshotData_(data);
+      if (window.S){
+        window.S.transactions = data.transactions;
+        window.S.categories   = data.categories;
+        window.S.settings     = data.settings;
+        window.S.pendings     = data.pendings;
+        window.S.budgets      = data.budgets;
+        window.S.recurring    = data.recurring;
+        window.S.goals        = data.goals;
+        window.S.palettes     = data.palettes;
+        if (typeof window.renderAll === 'function') window.renderAll();
+      }
+      if (window.toast) toast('Cambios sincronizados','ok');
+    }catch(e){ /* si falla, igual quedó subido; se verá al reiniciar */ }
+  }
+}
+
+/* Barra de aviso abajo: sin conexión / subiendo cambios */
+function ensureBar_(){
+  if(document.getElementById('offline-bar')) return;
+  const css=document.createElement('style');
+  css.textContent='#offline-bar{position:fixed;left:0;right:0;bottom:0;z-index:600;display:none;'
+    +'text-align:center;padding:9px 14px;font:600 13px \'Inter\',system-ui,sans-serif;color:#fff;'
+    +'box-shadow:0 -4px 14px rgba(0,0,0,.35);padding-bottom:calc(9px + env(safe-area-inset-bottom,0px))}'
+    +'#offline-bar.show{display:block}';
+  document.head.appendChild(css);
+  const bar=document.createElement('div'); bar.id='offline-bar'; document.body.appendChild(bar);
+}
+function updateBar_(){
+  ensureBar_();
+  const bar=document.getElementById('offline-bar'); if(!bar) return;
+  const n=loadQueue_().length;
+  if (isOffline_()){
+    bar.style.background='#B45309';
+    bar.textContent = n>0
+      ? ('Sin conexión — '+n+' cambio'+(n===1?'':'s')+' se subirá'+(n===1?'':'n')+' al reconectar')
+      : 'Sin conexión — mostrando tus últimos datos guardados';
+    bar.classList.add('show');
+  } else if (n>0){
+    bar.style.background='#1D4ED8';
+    bar.textContent='Subiendo '+n+' cambio'+(n===1?'':'s')+'…';
+    bar.classList.add('show');
+  } else {
+    bar.classList.remove('show');
+  }
+}
+window.addEventListener('online',  function(){ updateBar_(); flushQueue_(); });
+window.addEventListener('offline', function(){ updateBar_(); });
+
+/* ═══════════════ Funciones de datos ═══════════════ */
+async function fetchAll_(){
+  const [tx, cats, set, pend, bud, rec, goals] = await Promise.all([
+    sb.from('transactions').select('*'),
+    sb.from('categories').select('*'),
+    sb.from('settings').select('*').maybeSingle(),
+    sb.from('pendings').select('*'),
+    sb.from('budgets').select('*'),
+    sb.from('recurring').select('*'),
+    sb.from('goals').select('*')
+  ]);
+  for (const r of [tx,cats,set,pend,bud,rec,goals]) if (r.error) throw r.error;
+  const grouped = { Income:[], Expense:[], Savings:[] };
+  (cats.data||[]).forEach(function(c){ if(grouped[c.type]) grouped[c.type].push({name:c.name, color:c.color}); });
+  return {
+    transactions: (tx.data||[]).map(mapTx_),
+    categories: grouped,
+    settings: mapSettings_(set.data),
+    pendings: (pend.data||[]).map(mapPending_),
+    budgets: (bud.data||[]).map(mapBudget_),
+    recurring: (rec.data||[]).map(mapRecurring_),
+    goals: (goals.data||[]).map(mapGoal_),
+    palettes: PALETTE_BY_TYPE
+  };
+}
+
 const API = {
   async getInitialData(){
-    const [tx, cats, set, pend, bud, rec, goals] = await Promise.all([
-      sb.from('transactions').select('*'),
-      sb.from('categories').select('*'),
-      sb.from('settings').select('*').maybeSingle(),
-      sb.from('pendings').select('*'),
-      sb.from('budgets').select('*'),
-      sb.from('recurring').select('*'),
-      sb.from('goals').select('*')
-    ]);
-    for (const r of [tx,cats,set,pend,bud,rec,goals]) if (r.error) throw r.error;
-
-    const grouped = { Income:[], Expense:[], Savings:[] };
-    (cats.data||[]).forEach(function(c){ if(grouped[c.type]) grouped[c.type].push({name:c.name, color:c.color}); });
-
-    return {
-      transactions: (tx.data||[]).map(mapTx_),
-      categories: grouped,
-      settings: mapSettings_(set.data),
-      pendings: (pend.data||[]).map(mapPending_),
-      budgets: (bud.data||[]).map(mapBudget_),
-      recurring: (rec.data||[]).map(mapRecurring_),
-      goals: (goals.data||[]).map(mapGoal_),
-      palettes: PALETTE_BY_TYPE
-    };
+    try{
+      const data = await fetchAll_();     // hay internet
+      saveSnapshotData_(data);            // guarda copia local
+      updateBar_();
+      // si quedaron cambios sin subir de una sesión anterior, súbelos
+      setTimeout(function(){ flushQueue_(); }, 1200);
+      return data;
+    }catch(e){
+      const snap = loadSnapshot_();
+      if (snap){ updateBar_(); return snap; }   // sin internet: usa la copia local
+      throw e;                                   // sin copia y sin internet
+    }
   },
 
-  /* ── Transacciones ── */
+  /* ── Movimientos (con soporte sin internet) ── */
   async addTransaction(tx){
-    const payload = { date:tx.date||today_(), type:tx.type, category:tx.category, amount:num_(tx.amount),
-      color:tx.color||'#64748B', source:normSource_(tx.source), note:tx.note||'' };
-    const { data, error } = await sb.from('transactions').insert(payload).select().single();
-    if (error) throw error;
-    return mapTx_(data);
+    const cid = tx.client_id || uuid_();
+    const local = { id:cid, timestamp:new Date().toISOString(), date:tx.date||today_(), type:tx.type,
+      category:tx.category, amount:num_(tx.amount), color:tx.color||'#64748B', source:tx.source||'', note:tx.note||'' };
+    if (isOffline_()){ enqueue_({op:'add', client_id:cid, payload:tx}); snapSoon_(); return local; }
+    try{
+      const saved = await txUpsert_(cid, tx); snapSoon_(); return mapTx_(saved);
+    }catch(e){
+      if (isNetErr_(e)){ enqueue_({op:'add', client_id:cid, payload:tx}); snapSoon_(); return local; }
+      throw e;
+    }
   },
   async updateTransaction(id, tx){
-    const payload = { date:tx.date||today_(), type:tx.type, category:tx.category, amount:num_(tx.amount),
-      color:tx.color||'#64748B', source:normSource_(tx.source), note:tx.note||'' };
-    const { data, error } = await sb.from('transactions').update(payload).eq('id',id).select().single();
-    if (error) throw error;
-    return mapTx_(data);
+    if (isOffline_()){ enqueue_({op:'update', client_id:id, payload:tx}); snapSoon_(); return true; }
+    try{
+      const { error } = await sb.from('transactions').update(buildTxPayload_(id, tx)).eq('client_id', id);
+      if (error) throw error; snapSoon_(); return true;
+    }catch(e){
+      if (isNetErr_(e)){ enqueue_({op:'update', client_id:id, payload:tx}); snapSoon_(); return true; }
+      throw e;
+    }
   },
   async deleteTransaction(id){
-    const { error } = await sb.from('transactions').delete().eq('id',id);
-    if (error) throw error; return true;
+    if (isOffline_()){ enqueueDelete_(id); snapSoon_(); return true; }
+    try{
+      const { error } = await sb.from('transactions').delete().eq('client_id', id);
+      if (error) throw error; snapSoon_(); return true;
+    }catch(e){
+      if (isNetErr_(e)){ enqueueDelete_(id); snapSoon_(); return true; }
+      throw e;
+    }
   },
 
-  /* ── Categorías ── */
+  /* ── Categorías (requieren conexión) ── */
   async addCategory(type, name, color){
     const { data, error } = await sb.from('categories').insert({type,name,color}).select().single();
     if (error){
@@ -253,10 +385,8 @@ const API = {
     if (error) throw error;
     return { notifyEmail:email||'', notifyEnabled:!!enabled };
   },
-
-  /* ── Notificaciones (pendiente: paso 2) ── */
   async probarNotificacion(){
-    throw new Error('Las notificaciones por correo se activan en el siguiente paso (Edge Function).');
+    throw new Error('Las notificaciones por correo están desactivadas por ahora.');
   },
 
   /* ═══════════════ EXPORTACIÓN (cliente) ═══════════════ */
@@ -264,49 +394,29 @@ const API = {
     if (!window.XLSX) throw new Error('Falta la librería de Excel. Recarga la app.');
     const list = exportFilter_(scope);
     const sum = summary_(list);
-
-    // Hoja: Movimientos
     const enc = [
       ['Control Finanzas MS — Movimientos'],
       [scopeLabel_(scope) + '  ·  Generado: ' + nowStamp_()],
       [],
-      ['Ingresos', sum.ingresos],
-      ['Gastos', sum.gastos],
-      ['Ahorro', sum.ahorro],
-      ['Disponible', sum.disponible],
+      ['Ingresos', sum.ingresos], ['Gastos', sum.gastos], ['Ahorro', sum.ahorro], ['Disponible', sum.disponible],
       [],
       ['Fecha', 'Tipo', 'Categoría', 'Monto', 'Origen', 'Nota']
     ];
-    const cuerpo = list.map(function(t){
-      return [ fmtFechaCorta_(t.date), TIPO_ES[t.type]||t.type, t.category, t.amount, ORIGEN_ES[t.source]||'', t.note||'' ];
-    });
+    const cuerpo = list.map(function(t){ return [ fmtFechaCorta_(t.date), TIPO_ES[t.type]||t.type, t.category, t.amount, ORIGEN_ES[t.source]||'', t.note||'' ]; });
     const ws = XLSX.utils.aoa_to_sheet(enc.concat(cuerpo));
     ws['!cols'] = [{wch:12},{wch:10},{wch:24},{wch:14},{wch:14},{wch:34}];
-
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
 
-    // Hoja: Pendientes
     const pl = exportPendFilter_(scope);
-    const pEnc = [
-      ['Control Finanzas MS — Ingresos / Pagos pendientes'],
-      [scopeLabel_(scope) + '  ·  Generado: ' + nowStamp_()],
-      [],
-      ['Fecha acordada', 'Tipo', 'Categoría', 'Monto', 'Método', 'Estado']
-    ];
-    const pCuerpo = pl.map(function(p){
-      return [ p.dueDate?fmtFechaCorta_(p.dueDate):'', p.kind==='Income'?'Ingreso':'Pago', p.category, p.amount, p.method||'', estadoPend_(p) ];
-    });
+    const pEnc = [ ['Control Finanzas MS — Ingresos / Pagos pendientes'], [scopeLabel_(scope)+'  ·  Generado: '+nowStamp_()], [], ['Fecha acordada','Tipo','Categoría','Monto','Método','Estado'] ];
+    const pCuerpo = pl.map(function(p){ return [ p.dueDate?fmtFechaCorta_(p.dueDate):'', p.kind==='Income'?'Ingreso':'Pago', p.category, p.amount, p.method||'', estadoPend_(p) ]; });
     const pws = XLSX.utils.aoa_to_sheet(pEnc.concat(pCuerpo));
     pws['!cols'] = [{wch:14},{wch:10},{wch:24},{wch:14},{wch:14},{wch:12}];
     XLSX.utils.book_append_sheet(wb, pws, 'Pendientes');
 
     const b64 = XLSX.write(wb, { type:'base64', bookType:'xlsx' });
-    return {
-      filename: 'Control_Finanzas_MS_' + fileStamp_() + '.xlsx',
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      b64: b64
-    };
+    return { filename:'Control_Finanzas_MS_'+fileStamp_()+'.xlsx', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', b64:b64 };
   },
 
   async exportPdf(scope){
@@ -314,61 +424,69 @@ const API = {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit:'pt', format:'a4' });
     const list = exportFilter_(scope), sum = summary_(list);
-
-    doc.setFontSize(16); doc.setTextColor(40,40,40);
-    doc.text('Control Finanzas MS', 40, 42);
-    doc.setFontSize(10); doc.setTextColor(120,120,120);
-    doc.text('Reporte de movimientos · ' + scopeLabel_(scope) + ' · ' + nowStamp_(), 40, 60);
-
+    doc.setFontSize(16); doc.setTextColor(40,40,40); doc.text('Control Finanzas MS', 40, 42);
+    doc.setFontSize(10); doc.setTextColor(120,120,120); doc.text('Reporte de movimientos · '+scopeLabel_(scope)+' · '+nowStamp_(), 40, 60);
     doc.setFontSize(11); doc.setTextColor(20,20,20);
-    doc.text('Ingresos: ' + money_(sum.ingresos), 40, 86);
-    doc.text('Gastos: ' + money_(sum.gastos), 200, 86);
-    doc.text('Ahorro: ' + money_(sum.ahorro), 340, 86);
-    doc.text('Disponible: ' + money_(sum.disponible), 460, 86);
-
+    doc.text('Ingresos: '+money_(sum.ingresos), 40, 86);
+    doc.text('Gastos: '+money_(sum.gastos), 200, 86);
+    doc.text('Ahorro: '+money_(sum.ahorro), 340, 86);
+    doc.text('Disponible: '+money_(sum.disponible), 460, 86);
     doc.autoTable({
       startY: 100,
       head: [['Fecha','Tipo','Categoría','Monto','Origen','Nota']],
-      body: list.map(function(t){
-        return [ fmtFechaCorta_(t.date), TIPO_ES[t.type]||t.type, t.category, money_(t.amount), ORIGEN_ES[t.source]||'', t.note||'' ];
-      }),
-      styles:{ fontSize:8, cellPadding:4 },
-      headStyles:{ fillColor:[15,23,42], textColor:255 },
-      alternateRowStyles:{ fillColor:[248,250,252] },
-      columnStyles:{ 3:{ halign:'right' } }
+      body: list.map(function(t){ return [ fmtFechaCorta_(t.date), TIPO_ES[t.type]||t.type, t.category, money_(t.amount), ORIGEN_ES[t.source]||'', t.note||'' ]; }),
+      styles:{ fontSize:8, cellPadding:4 }, headStyles:{ fillColor:[15,23,42], textColor:255 },
+      alternateRowStyles:{ fillColor:[248,250,252] }, columnStyles:{ 3:{ halign:'right' } }
     });
-
     const pl = exportPendFilter_(scope);
     if (pl.length){
       doc.autoTable({
-        startY: (doc.lastAutoTable ? doc.lastAutoTable.finalY : 120) + 24,
+        startY: (doc.lastAutoTable?doc.lastAutoTable.finalY:120)+24,
         head: [['Fecha acordada','Tipo','Categoría','Monto','Método','Estado']],
-        body: pl.map(function(p){
-          return [ p.dueDate?fmtFechaCorta_(p.dueDate):'—', p.kind==='Income'?'Ingreso':'Pago', p.category, money_(p.amount), p.method||'', estadoPend_(p) ];
-        }),
-        styles:{ fontSize:8, cellPadding:4 },
-        headStyles:{ fillColor:[245,158,11], textColor:255 },
-        columnStyles:{ 3:{ halign:'right' } }
+        body: pl.map(function(p){ return [ p.dueDate?fmtFechaCorta_(p.dueDate):'—', p.kind==='Income'?'Ingreso':'Pago', p.category, money_(p.amount), p.method||'', estadoPend_(p) ]; }),
+        styles:{ fontSize:8, cellPadding:4 }, headStyles:{ fillColor:[245,158,11], textColor:255 }, columnStyles:{ 3:{ halign:'right' } }
       });
     }
-
     const dataUri = doc.output('datauristring');
-    const b64 = dataUri.substring(dataUri.indexOf(',') + 1);
-    return { filename: 'Control_Finanzas_MS_' + fileStamp_() + '.pdf', mimeType:'application/pdf', b64: b64 };
+    const b64 = dataUri.substring(dataUri.indexOf(',')+1);
+    return { filename:'Control_Finanzas_MS_'+fileStamp_()+'.pdf', mimeType:'application/pdf', b64:b64 };
   }
 };
 
-/* ═══════════════ gs(): el puente que tu app.js ya usa ═══════════════ */
+/* ═══════════════ Helpers de exportación ═══════════════ */
+function pad2_(n){ return ('0'+n).slice(-2); }
+function fileStamp_(){ const d=new Date(); return d.getFullYear()+pad2_(d.getMonth()+1)+pad2_(d.getDate())+'-'+pad2_(d.getHours())+pad2_(d.getMinutes()); }
+function nowStamp_(){ const d=new Date(); return pad2_(d.getDate())+'/'+pad2_(d.getMonth()+1)+'/'+d.getFullYear()+' '+pad2_(d.getHours())+':'+pad2_(d.getMinutes()); }
+function fmtFechaCorta_(ymd){ const p=String(ymd).split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
+function scopeLabel_(scope){ if(!scope||scope.mode==='all') return 'Toda la base de datos'; return (scope.label?scope.label+'  ·  ':'')+fmtFechaCorta_(scope.start)+' a '+fmtFechaCorta_(scope.end); }
+function money_(n){ n=Math.round(n||0); const st=(window.S&&window.S.settings)||{}; const sym=st.currencySymbol||'$'; const loc=st.locale||'es-CO'; return (n<0?'-':'')+sym+' '+Math.abs(n).toLocaleString(loc); }
+function estadoPend_(p){ if(p.status==='completed') return 'Completado'; if(p.dueDate && p.dueDate<today_()) return 'Vencido'; return 'Pendiente'; }
+function exportFilter_(scope){
+  let all = ((window.S&&window.S.transactions)?window.S.transactions:[]).slice();
+  if (scope && scope.mode==='range' && scope.start && scope.end) all = all.filter(function(t){ return t.date>=scope.start && t.date<=scope.end; });
+  all.sort(function(a,b){ return a.date===b.date ? ((a.timestamp||'')<(b.timestamp||'')?-1:1) : (a.date<b.date?-1:1); });
+  return all;
+}
+function exportPendFilter_(scope){
+  let all = ((window.S&&window.S.pendings)?window.S.pendings:[]).slice();
+  if (scope && scope.mode==='range' && scope.start && scope.end) all = all.filter(function(p){ return p.dueDate && p.dueDate>=scope.start && p.dueDate<=scope.end; });
+  all.sort(function(a,b){ return (a.dueDate||'')<(b.dueDate||'')?-1:1; });
+  return all;
+}
+function summary_(list){
+  function s(t){ return list.filter(function(x){return x.type===t;}).reduce(function(a,x){return a+x.amount;},0); }
+  const ing=s('Income'), gas=s('Expense'), aho=s('Savings');
+  return { ingresos:ing, gastos:gas, ahorro:aho, disponible:ing-gas-aho, n:list.length };
+}
+
+/* ═══════════════ gs(): el puente que tu app.js usa ═══════════════ */
 window.gs = function(fn){
   const args = [].slice.call(arguments, 1);
   if (typeof API[fn] !== 'function') return Promise.reject(new Error('Función no disponible: '+fn));
   return API[fn].apply(null, args);
 };
 
-/* ═══════════════ Descarga del archivo exportado ═══════════════
-   Reemplaza el downloadB64 de app.js por uno que:
-   - en la app de Android (Capacitor), guarda el archivo y abre el menú "Compartir";
-   - en el navegador, descarga normal. */
+/* ═══════════════ Descarga del archivo exportado ═══════════════ */
 window.downloadB64 = async function(res){
   try{
     if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()
@@ -378,8 +496,7 @@ window.downloadB64 = async function(res){
       await Share.share({ title: res.filename, url: w.uri });
       return;
     }
-  }catch(e){ /* si falla el modo nativo, cae al método de navegador */ }
-
+  }catch(e){ /* cae al método de navegador */ }
   try{
     const bin=atob(res.b64), len=bin.length, bytes=new Uint8Array(len);
     for(let i=0;i<len;i++)bytes[i]=bin.charCodeAt(i);
@@ -452,7 +569,6 @@ function traducirError_(m){
   if (/at least 6/i.test(m)) return 'La contraseña debe tener al menos 6 caracteres.';
   return m;
 }
-
 function showLogin_(){ document.getElementById('login-ov').classList.add('show'); }
 
 async function startApp_(){
@@ -461,6 +577,8 @@ async function startApp_(){
   const ov = document.getElementById('login-ov'); if (ov) ov.classList.remove('show');
   addLogoutButton_();
   if (typeof window.init === 'function') window.init();
+  updateBar_();
+  setTimeout(function(){ if(!isOffline_()) flushQueue_(); }, 1500);
 }
 
 function addLogoutButton_(){
@@ -483,98 +601,13 @@ window.logout = async function(){
 /* ═══════════════ Arranque ═══════════════ */
 document.addEventListener('DOMContentLoaded', async ()=>{
   injectLogin_();
-  const { data:{ session } } = await sb.auth.getSession();
-  if (session) startApp_();
-  else showLogin_();
-});
-
-/* Esconder la barra de estado del sistema en Android */
-document.addEventListener('DOMContentLoaded', function(){
   try{
-    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar){
-      const SB = window.Capacitor.Plugins.StatusBar;
-      SB.hide();
-      if (SB.setOverlaysWebView) SB.setOverlaysWebView({ overlay: false });
-    }
-  }catch(e){}
+    const { data:{ session } } = await sb.auth.getSession();
+    if (session) startApp_();
+    else showLogin_();
+  }catch(e){
+    // sin internet al abrir: si hay sesión guardada, Supabase la devuelve igual;
+    // si no, mostramos login.
+    showLogin_();
+  }
 });
-
-/* Bloquea el scroll del fondo cuando hay un menú o modal abierto */
-(function(){
-  function anyOpen(){ return !!document.querySelector('.modal-backdrop.show, .sheet-backdrop.show'); }
-  function sync(){ document.body.classList.toggle('no-scroll', anyOpen()); }
-  const mo = new MutationObserver(sync);
-  document.addEventListener('DOMContentLoaded', function(){
-    document.querySelectorAll('.modal-backdrop, .sheet-backdrop').forEach(function(el){
-      mo.observe(el, { attributes:true, attributeFilter:['class'] });
-    });
-  });
-})();
-
-/* ═══════════════════════════════════════════════════════════════════════
-   MODO SIN INTERNET — Etapa 1: lectura offline + aviso de conexión
-   (La Etapa 2 —registrar sin señal— se agrega después.)
-
-   Qué hace: cada vez que la app carga tus datos con internet, guarda una
-   copia local en el teléfono. Si abres la app SIN internet, muestra esa
-   última copia guardada en vez de quedarse cargando para siempre.
-
-   Requisito: tienes que haber abierto la app CON internet al menos una vez
-   (para que exista esa copia local).
-   ═══════════════════════════════════════════════════════════════════════ */
-
-function cacheKey_(){ return 'cf_cache_' + (CURRENT_USER_ID || 'anon'); }
-
-function saveSnapshot_(data){
-  try{ localStorage.setItem(cacheKey_(), JSON.stringify({ at: Date.now(), data: data })); }catch(e){}
-}
-function loadSnapshot_(){
-  try{
-    const raw = localStorage.getItem(cacheKey_());
-    if(!raw) return null;
-    return JSON.parse(raw).data;
-  }catch(e){ return null; }
-}
-
-/* Barra de aviso "sin conexión" (abajo de la pantalla) */
-function ensureOfflineBar_(){
-  if(document.getElementById('offline-bar')) return;
-  const css = document.createElement('style');
-  css.textContent = `
-  #offline-bar{position:fixed;left:0;right:0;bottom:0;z-index:600;display:none;
-    text-align:center;padding:9px 14px;font:600 13px 'Inter',system-ui,sans-serif;
-    color:#fff;background:#B45309;box-shadow:0 -4px 14px rgba(0,0,0,.35);
-    padding-bottom:calc(9px + env(safe-area-inset-bottom,0px))}
-  #offline-bar.show{display:block}`;
-  document.head.appendChild(css);
-  const bar = document.createElement('div');
-  bar.id = 'offline-bar';
-  bar.textContent = 'Sin conexión — mostrando tus últimos datos guardados';
-  document.body.appendChild(bar);
-}
-function setOffline_(isOff){
-  ensureOfflineBar_();
-  const bar = document.getElementById('offline-bar');
-  if(bar) bar.classList.toggle('show', !!isOff);
-}
-
-/* Detectar cuando se va o vuelve la conexión */
-window.addEventListener('online',  function(){ setOffline_(false); });
-window.addEventListener('offline', function(){ setOffline_(true); });
-
-/* Envolver la carga inicial: si no hay internet, usar la copia local */
-(function(){
-  const _origGetInitial = API.getInitialData;
-  API.getInitialData = async function(){
-    try{
-      const data = await _origGetInitial.call(API);
-      saveSnapshot_(data);      // guarda copia local cuando sí hay internet
-      setOffline_(false);
-      return data;
-    }catch(e){
-      const snap = loadSnapshot_();
-      if(snap){ setOffline_(true); return snap; }   // sin internet: muestra la copia
-      throw e;                                       // sin copia y sin internet: no hay nada que mostrar
-    }
-  };
-})();
