@@ -601,13 +601,30 @@ window.logout = async function(){
 /* ═══════════════ Arranque ═══════════════ */
 document.addEventListener('DOMContentLoaded', async ()=>{
   injectLogin_();
+
+  // ¿Hay una sesión guardada localmente? (Supabase la guarda en el teléfono)
+  let haySesionLocal = false;
   try{
-    const { data:{ session } } = await sb.auth.getSession();
-    if (session) startApp_();
-    else showLogin_();
+    for (let i=0; i<localStorage.length; i++){
+      const k = localStorage.key(i);
+      if (k && k.indexOf('-auth-token') >= 0 && localStorage.getItem(k)){ haySesionLocal = true; break; }
+    }
+  }catch(e){}
+
+  // Pide la sesión a Supabase, pero sin colgarse: máximo 4 segundos de espera.
+  let session = null;
+  try{
+    const conTiempoLimite = Promise.race([
+      sb.auth.getSession().then(r => r.data.session),
+      new Promise((resolve)=> setTimeout(()=> resolve('TIMEOUT'), 4000))
+    ]);
+    const r = await conTiempoLimite;
+    if (r !== 'TIMEOUT') session = r;
+    else session = haySesionLocal ? 'LOCAL' : null;   // sin respuesta pero hay sesión local
   }catch(e){
-    // sin internet al abrir: si hay sesión guardada, Supabase la devuelve igual;
-    // si no, mostramos login.
-    showLogin_();
+    session = haySesionLocal ? 'LOCAL' : null;          // sin internet: usa la sesión local si existe
   }
+
+  if (session) startApp_();
+  else showLogin_();
 });
