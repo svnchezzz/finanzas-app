@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Control. F — Cuenta confirmada</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#0a0e1a; --surface:#121a2e; --line:rgba(255,255,255,.08);
+      --txt:#eef2ff; --muted:#8a97b8; --faint:#5b678a;
+      --primary:#4F46E5; --primary2:#6366F1; --savings:#0EA5E9; --income:#10B981;
+      --sans:'Inter',system-ui,sans-serif; --display:'Space Grotesk','Inter',sans-serif;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;height:100%}
+    body{
+      font-family:var(--sans); color:var(--txt);
+      background:
+        radial-gradient(900px 500px at 110% -10%, rgba(99,102,241,.16), transparent 55%),
+        radial-gradient(900px 500px at -10% 10%, rgba(14,165,233,.12), transparent 55%),
+        var(--bg);
+      display:flex; align-items:center; justify-content:center;
+      padding:24px; min-height:100%;
+    }
+    .card{
+      width:100%; max-width:440px; background:var(--surface);
+      border:1px solid var(--line); border-radius:22px; padding:40px 32px;
+      text-align:center; box-shadow:0 30px 70px -30px rgba(0,0,0,.8);
+      animation:rise .5s cubic-bezier(.22,1,.36,1) both;
+    }
+    @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+    .mark{
+      width:64px; height:64px; border-radius:18px; margin:0 auto 22px;
+      background:linear-gradient(135deg,var(--primary2),var(--savings));
+      display:flex; align-items:center; justify-content:center;
+      box-shadow:0 14px 34px -10px rgba(99,102,241,.6);
+    }
+    .mark svg{width:34px;height:34px;stroke:#fff;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+    .brand{font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.3px;color:var(--muted);margin-bottom:18px}
+    .brand b{color:var(--txt)}
+    .tag{font-size:11px;font-weight:700;letter-spacing:1px;background:linear-gradient(135deg,var(--primary),var(--primary2));color:#fff;padding:2px 7px;border-radius:6px;margin-left:4px}
+    h1{font-family:var(--display);font-size:25px;margin:0 0 12px}
+    p{color:var(--muted);font-size:15px;line-height:1.65;margin:0 auto;max-width:330px}
+    .hint{margin-top:24px;color:var(--faint);font-size:12.5px}
+    .ok h1{color:var(--txt)}
+    #err{display:none}
+    .err-ico{background:linear-gradient(135deg,#F43F5E,#F97316)!important;box-shadow:0 14px 34px -10px rgba(244,63,94,.6)!important}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div id="okView" class="ok">
+      <div class="mark">
+        <svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+      </div>
+      <div class="brand"><b>Control. F</b><span class="tag">MS</span></div>
+      <h1>¡Muchas gracias!</h1>
+      <p>Tu cuenta quedó confirmada. Ya puedes <b style="color:var(--txt)">volver a la aplicación</b> e iniciar sesión.</p>
+      <div class="hint">Puedes cerrar esta ventana.</div>
+    </div>
+
+    <div id="err">
+      <div class="mark err-ico">
+        <svg viewBox="0 0 24 24"><path d="M12 8v5"/><path d="M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg>
+      </div>
+      <div class="brand"><b>Control. F</b><span class="tag">MS</span></div>
+      <h1>El enlace no es válido</h1>
+      <p>Es posible que el enlace haya expirado o ya se haya usado. Abre la aplicación e intenta registrarte o iniciar sesión de nuevo.</p>
+      <div class="hint">Puedes cerrar esta ventana.</div>
+    </div>
+  </main>
+
+  <script>
+    // Si Supabase devuelve un error en la URL (enlace vencido/usado), muestra el mensaje de error.
+    (function(){
+      var hay = (location.hash + '&' + location.search).toLowerCase();
+      if (hay.indexOf('error') !== -1){
+        document.getElementById('okView').style.display = 'none';
+        document.getElementById('err').style.display = 'block';
+      }
+    })();
+  </script>
+</body>
+</html>
