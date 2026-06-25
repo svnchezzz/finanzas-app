@@ -185,6 +185,7 @@ async function init(){
   const boot=document.getElementById('boot');
   boot.classList.add('gone'); setTimeout(function(){boot.style.display='none';},520);
   document.getElementById('app').classList.remove('hidden');
+  notifStartup();
 }
 
 /* ── Conexiones de UI ── */
@@ -693,7 +694,12 @@ function togglePendDone(id){
   const p=S.pendings.find(function(x){return x.id===id;}); if(!p)return;
   const prev=p.status; p.status=(p.status==='completed'?'pending':'completed');
   refreshPend();
-  gs('setPendingStatus',id,p.status==='completed').then(function(){toast(p.status==='completed'?'Marcado completado':'Reabierto','ok');})
+  gs('setPendingStatus',id,p.status==='completed').then(function(){toast(p.status==='completed'?'Marcado completado':'Reabierto','ok');
+    if(window.Notif){
+      if(p.status==='completed'){ cancelPendAlerts(id); Notif.now('pend-done:'+id,'✅ Pendiente completado',(p.category||'Pendiente')+' · '+money(p.amount)); }
+      else{ Notif.clearSeen('pend-overdue-fired:'+id); schedulePendAlerts(p); }
+    }
+  })
     .catch(function(){p.status=prev;refreshPend();toast('No se pudo actualizar','err');});
 }
 function removePending(id){
@@ -702,6 +708,7 @@ function removePending(id){
     const idx=S.pendings.findIndex(function(x){return x.id===id;}); if(idx<0)return;
     const removed=S.pendings[idx]; S.pendings.splice(idx,1);
     refreshPend();
+    if(window.Notif){ cancelPendAlerts(id); Notif.clearSeen('pend-overdue-fired:'+id); }
     gs('deletePending',id).then(function(){toast('Pendiente eliminado','ok');})
       .catch(function(){S.pendings.splice(idx,0,removed);refreshPend();toast('No se pudo eliminar','err');});
   });
@@ -765,14 +772,29 @@ function savePending(){
   closePendModal();
   if(editId){
     const idx=S.pendings.findIndex(function(x){return x.id===editId;});
-    const prev=S.pendings[idx]; S.pendings[idx]=Object.assign({id:editId},p);
+    const prev=S.pendings[idx]; const prevStatus=prev?prev.status:'pending';
+    S.pendings[idx]=Object.assign({id:editId},p);
     refreshPend();
-    gs('updatePending',editId,p).then(function(){toast('Pendiente actualizado','ok');})
+    gs('updatePending',editId,p).then(function(){toast('Pendiente actualizado','ok');
+      if(window.Notif){
+        const np=Object.assign({id:editId},p);
+        cancelPendAlerts(editId);
+        if(np.status==='completed'){
+          if(prevStatus!=='completed')
+            Notif.now('pend-done:'+editId,'✅ Pendiente completado',(np.category||'Pendiente')+' · '+money(np.amount));
+        }else{ schedulePendAlerts(np); }
+      }
+    })
       .catch(function(){S.pendings[idx]=prev;refreshPend();toast('No se pudo guardar','err');});
   }else{
     const temp=Object.assign({id:'tmp-'+Date.now()},p);
     S.pendings.push(temp); refreshPend();
-    gs('addPending',p).then(function(saved){const i=S.pendings.findIndex(function(x){return x.id===temp.id;});if(i>=0)S.pendings[i]=saved;toast('Pendiente guardado','ok');})
+    if(window.Notif&&p.status!=='completed'){
+      const tipo=p.kind==='Income'?'cobro':'pago';
+      Notif.now('pend-new:'+temp.id,'🕒 Nuevo pendiente','Registraste un '+tipo+' pendiente: '+(p.category||'')+' · '+money(p.amount));
+    }
+    gs('addPending',p).then(function(saved){const i=S.pendings.findIndex(function(x){return x.id===temp.id;});if(i>=0)S.pendings[i]=saved;toast('Pendiente guardado','ok');
+      if(window.Notif&&saved&&saved.id)schedulePendAlerts(saved);})
       .catch(function(){S.pendings=S.pendings.filter(function(x){return x.id!==temp.id;});refreshPend();toast('No se pudo guardar','err');});
   }
 }
@@ -852,12 +874,12 @@ function aplicarMetaAhorro_(metaSel, metaNewName, metaNewTarget, amount){
     const g={name:metaNewName, target:metaNewTarget, saved:amount, color:(paletteFor('Savings')[0]||'#8B5CF6'), note:''};
     const temp=Object.assign({id:'tmp-g'+Date.now()},g);
     S.goals.push(temp); if(S.view==='goals')renderGoals();
-    gs('addGoal',g).then(function(saved){const i=S.goals.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.goals[i]=saved;if(S.view==='goals')renderGoals();toast('Meta creada y aporte sumado','ok');})
+    gs('addGoal',g).then(function(saved){const i=S.goals.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.goals[i]=saved;if(S.view==='goals')renderGoals();toast('Meta creada y aporte sumado','ok');if(window.Notif)evalGoal(saved||temp,true);})
       .catch(function(){S.goals=S.goals.filter(function(x){return x.id!==temp.id;});if(S.view==='goals')renderGoals();toast('No se pudo crear la meta','err');});
   }else{
     const g=S.goals.find(function(x){return x.id===metaSel;}); if(!g) return;
     const prev=g.saved; g.saved=Math.max(0,g.saved+amount); if(S.view==='goals')renderGoals();
-    gs('contributeGoal',metaSel,amount).then(function(res){if(res&&typeof res.saved==='number'){g.saved=res.saved;if(S.view==='goals')renderGoals();}toast('Aporte sumado a "'+g.name+'"','ok');})
+    gs('contributeGoal',metaSel,amount).then(function(res){if(res&&typeof res.saved==='number'){g.saved=res.saved;if(S.view==='goals')renderGoals();}toast('Aporte sumado a "'+g.name+'"','ok');if(window.Notif)evalGoal(g,true);})
       .catch(function(){g.saved=prev;if(S.view==='goals')renderGoals();toast('No se pudo sumar a la meta','err');});
   }
 }
@@ -909,12 +931,13 @@ function saveTx(){
     const prev=S.transactions[idx];
     S.transactions[idx]=Object.assign({},prev,tx,{id:editId});
     S.ref=parseYMD(tx.date); renderAll();
-    gs('updateTransaction',editId,tx).then(function(){toast('Movimiento actualizado','ok');})
+    gs('updateTransaction',editId,tx).then(function(){toast('Movimiento actualizado','ok');
+      if(window.Notif){ if(tx.type==='Expense')evalBudget(tx.category,true); if(prev&&prev.category&&prev.category!==tx.category)evalBudget(prev.category,true); scheduleDailyReminders(); }})
       .catch(function(){S.transactions[idx]=prev;renderAll();toast('No se pudo guardar','err');});
   }else{
     const temp=Object.assign({id:'tmp-'+Date.now(),timestamp:new Date().toISOString()},tx);
     S.transactions.push(temp); S.ref=parseYMD(tx.date); renderAll();
-    gs('addTransaction',tx).then(function(saved){const i=S.transactions.findIndex(function(t){return t.id===temp.id;});if(i>=0)S.transactions[i]=saved;toast(TXT.guardado+' · '+money(amount),'ok');aplicarMetaAhorro_(metaSel,metaNewName,metaNewTarget,amount);})
+    gs('addTransaction',tx).then(function(saved){const i=S.transactions.findIndex(function(t){return t.id===temp.id;});if(i>=0)S.transactions[i]=saved;toast(TXT.guardado+' · '+money(amount),'ok');aplicarMetaAhorro_(metaSel,metaNewName,metaNewTarget,amount);if(window.Notif){if(tx.type==='Expense')evalBudget(tx.category,true);scheduleDailyReminders();}})
       .catch(function(){S.transactions=S.transactions.filter(function(t){return t.id!==temp.id;});renderAll();toast(TXT.errGuardar,'err');});
   }
 }
@@ -923,6 +946,7 @@ function removeTx(id){
   confirmAction('Eliminar movimiento','Vas a eliminar "'+tx.category+'" por '+money(tx.amount)+'. Esta acción no se puede deshacer.','Eliminar',function(){
     const idx=S.transactions.findIndex(function(t){return t.id===id;}); if(idx<0)return;
     const removed=S.transactions[idx]; S.transactions.splice(idx,1); renderAll();
+    if(window.Notif){ if(tx.type==='Expense')evalBudget(tx.category,true); scheduleDailyReminders(); }
     gs('deleteTransaction',id).then(function(){toast(TXT.eliminado,'ok');})
       .catch(function(){S.transactions.splice(idx,0,removed);renderAll();toast(TXT.errBorrar,'err');});
   });
@@ -1020,6 +1044,109 @@ function monthExpenseByCategory(){
   });
   return map;
 }
+/* ═══════════════ NOTIFICACIONES (presupuestos · metas · pendientes) ═══════════════ */
+function curMonthKey(){const d=new Date();return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);}
+// Gasto del MES REAL en curso por categoría (independiente del periodo que se esté viendo)
+function monthExpenseForCategoryNow(category){
+  const b=periodBounds(new Date(),'month');
+  return allMovements().filter(function(t){return t.type==='Expense'&&t.category===category&&inBounds(t,b);})
+    .reduce(function(a,t){return a+t.amount;},0);
+}
+// Revisa un presupuesto y avisa al cruzar 80% o 100% (una sola vez por mes). silent=solo registrar estado.
+function evalBudget(category,notify){
+  if(!window.Notif||!category)return;
+  const bg=budgetFor(category); if(bg<=0)return;
+  const spent=monthExpenseForCategoryNow(category);
+  const ratio=spent/bg, mk=curMonthKey();
+  const k80='budget80:'+category+':'+mk, k100='budget100:'+category+':'+mk;
+  if(ratio<0.8){ Notif.clearSeen(k80); Notif.clearSeen(k100); return; }
+  if(ratio<1){ Notif.clearSeen(k100); }
+  if(ratio>=1){
+    if(!Notif.wasSeen(k100)){ if(notify)Notif.now(k100,'🚨 Presupuesto agotado','Llegaste al 100% de "'+category+'": '+money(spent)+' de '+money(bg)+'.'); Notif.markSeen(k100); Notif.markSeen(k80); }
+  }else if(ratio>=0.8){
+    if(!Notif.wasSeen(k80)){ if(notify)Notif.now(k80,'⚠️ Cerca del límite del presupuesto','Vas en '+Math.round(ratio*100)+'% de "'+category+'": '+money(spent)+' de '+money(bg)+'.'); Notif.markSeen(k80); }
+  }
+}
+// Revisa una meta y avisa al cruzar 80% o 100%.
+function evalGoal(g,notify){
+  if(!window.Notif||!g||!g.target||g.target<=0)return;
+  const ratio=g.saved/g.target;
+  const k80='goal80:'+g.id, k100='goal100:'+g.id;
+  if(ratio<0.8){ Notif.clearSeen(k80); Notif.clearSeen(k100); return; }
+  if(ratio<1){ Notif.clearSeen(k100); }
+  if(ratio>=1){
+    if(!Notif.wasSeen(k100)){ if(notify)Notif.now(k100,'🎉 ¡Meta cumplida!','Completaste "'+g.name+'": '+money(g.saved)+' de '+money(g.target)+'.'); Notif.markSeen(k100); Notif.markSeen(k80); }
+  }else if(ratio>=0.8){
+    if(!Notif.wasSeen(k80)){ if(notify)Notif.now(k80,'🔥 Casi logras tu meta','Vas en '+Math.round(ratio*100)+'% de "'+g.name+'": '+money(g.saved)+' de '+money(g.target)+'.'); Notif.markSeen(k80); }
+  }
+}
+// Programa los avisos de un pendiente: recordatorio el día ANTES (9:00) y "vencido" el día DESPUÉS (9:00).
+function schedulePendAlerts(p){
+  if(!window.Notif||!p||!p.dueDate||p.status==='completed')return;
+  const due=parseYMD(p.dueDate);
+  // Recordatorio: un día antes de la fecha acordada
+  const remind=new Date(due.getFullYear(),due.getMonth(),due.getDate()-1,9,0,0,0);
+  if(remind.getTime()>Date.now())
+    Notif.at('pend-reminder:'+p.id,'🔔 Recordatorio',
+      (p.kind==='Income'?'Mañana tienes un cobro: ':'Mañana tienes un pago: ')+(p.category||'')+' · '+money(p.amount),remind);
+  // Vencido: un día después de la fecha acordada
+  const over=new Date(due.getFullYear(),due.getMonth(),due.getDate()+1,9,0,0,0);
+  if(over.getTime()>Date.now())
+    Notif.at('pend-overdue:'+p.id,'⚠️ Pendiente vencido',(p.category||'Pendiente')+' · '+money(p.amount)+' venció.',over);
+}
+// Cancela ambos avisos (recordatorio y vencido) de un pendiente.
+function cancelPendAlerts(id){
+  if(!window.Notif)return;
+  Notif.cancel('pend-reminder:'+id);
+  Notif.cancel('pend-overdue:'+id);
+}
+// Recorre los pendientes: avisa los ya vencidos (una vez) y programa los futuros.
+function scanPendingsNotif(notify){
+  if(!window.Notif)return;
+  (S.pendings||[]).forEach(function(p){
+    if(p.status==='completed'){ cancelPendAlerts(p.id); return; }
+    if(!p.dueDate)return;
+    const due=parseYMD(p.dueDate);
+    const overdueAt=new Date(due.getFullYear(),due.getMonth(),due.getDate()+1,9,0,0,0);
+    if(overdueAt.getTime()<=Date.now()){
+      const k='pend-overdue-fired:'+p.id;
+      if(!Notif.wasSeen(k)){ if(notify)Notif.now('pend-overdue:'+p.id,'⚠️ Pendiente vencido',(p.category||'Pendiente')+' · '+money(p.amount)+' está vencido.'); Notif.markSeen(k); }
+    }else{
+      schedulePendAlerts(p);
+    }
+  });
+}
+// Recordatorio diario: si un día no registras ningún movimiento, avisa a las 20:00.
+// Programa los próximos días y cancela solo el día en que sí registras algo.
+function scheduleDailyReminders(){
+  if(!window.Notif)return;
+  const DAYS=14, HOUR=20;
+  const moved={};
+  (S.transactions||[]).forEach(function(t){ if(t.date)moved[t.date]=true; });
+  const base=sod(new Date());
+  for(let i=0;i<DAYS;i++){
+    const d=new Date(base.getFullYear(),base.getMonth(),base.getDate()+i,HOUR,0,0,0);
+    const key='daily-reminder:'+ymd(d);
+    if(moved[ymd(d)]||d.getTime()<=Date.now()) Notif.cancel(key);
+    else Notif.at(key,'📝 Registra tus movimientos','¡No te olvides de registrar tus movimientos del día!',d);
+  }
+}
+// Arranque: pide permiso y revisa el estado actual. En la PRIMERA ejecución solo
+// registra el estado (sin avisar) para no llenar de notificaciones al instalar.
+function notifStartup(){
+  if(!window.Notif||!Notif.available())return;
+  Notif.init().then(function(ok){
+    if(!ok)return;
+    const firstRun=!Notif.wasSeen('__baseline__');
+    const notify=!firstRun;
+    (S.categories.Expense||[]).forEach(function(c){ evalBudget(c.name,notify); });
+    (S.goals||[]).forEach(function(g){ evalGoal(g,notify); });
+    scanPendingsNotif(notify);
+    scheduleDailyReminders();
+    if(firstRun)Notif.markSeen('__baseline__');
+  });
+}
+
 function renderBudgets(){
   const wrap=document.getElementById('budgetList');
   const spent=monthExpenseByCategory();
@@ -1065,6 +1192,10 @@ function promptBudget(category,current){
     else if(i>=0)S.budgets[i].amount=v;
     else S.budgets.push({type:'Expense',category:category,amount:v});
     renderBudgets();
+    if(window.Notif){
+      if(v<=0){ const mk=curMonthKey(); Notif.clearSeen('budget80:'+category+':'+mk); Notif.clearSeen('budget100:'+category+':'+mk); }
+      else evalBudget(category,true);
+    }
     gs('setBudget','Expense',category,v).then(function(){toast('Presupuesto guardado','ok');})
       .catch(function(){S.budgets=prevB;renderBudgets();toast('No se pudo guardar','err');});
   });
@@ -1210,7 +1341,7 @@ function contribGoal(id,isMinus){
     if(v<=0)return;
     if(isMinus)v=-v;
     const prev=g.saved; g.saved=Math.max(0,g.saved+v); renderGoals();
-    gs('contributeGoal',id,v).then(function(res){if(res&&typeof res.saved==='number'){g.saved=res.saved;renderGoals();}toast('Meta actualizada','ok');})
+    gs('contributeGoal',id,v).then(function(res){if(res&&typeof res.saved==='number'){g.saved=res.saved;renderGoals();}toast('Meta actualizada','ok');if(window.Notif)evalGoal(g,true);})
       .catch(function(){g.saved=prev;renderGoals();toast('No se pudo guardar','err');});
   });
   setTimeout(function(){const el=document.getElementById('contribInput');if(el){el.focus();el.addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);});}},260);
@@ -1253,12 +1384,12 @@ function saveGoal(){
   if(editId){
     const idx=S.goals.findIndex(function(x){return x.id===editId;});const prev=S.goals[idx];
     S.goals[idx]=Object.assign({id:editId},g);renderGoals();
-    gs('updateGoal',editId,g).then(function(){toast('Meta actualizada','ok');})
+    gs('updateGoal',editId,g).then(function(){toast('Meta actualizada','ok');if(window.Notif)evalGoal(S.goals[idx],true);})
       .catch(function(){S.goals[idx]=prev;renderGoals();toast('No se pudo guardar','err');});
   }else{
     const temp=Object.assign({id:'tmp-'+Date.now()},g);
     S.goals.push(temp);renderGoals();
-    gs('addGoal',g).then(function(saved){const i=S.goals.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.goals[i]=saved;toast('Meta creada','ok');})
+    gs('addGoal',g).then(function(saved){const i=S.goals.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.goals[i]=saved;toast('Meta creada','ok');if(window.Notif)evalGoal(saved||temp,true);})
       .catch(function(){S.goals=S.goals.filter(function(x){return x.id!==temp.id;});renderGoals();toast('No se pudo guardar','err');});
   }
 }

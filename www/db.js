@@ -598,7 +598,8 @@ function injectLogin_(){
       return;
     }
     msg().textContent='Creando cuenta…';
-    const { data, error } = await sb.auth.signUp({ email:email(), password:pass() });
+    const { data, error } = await sb.auth.signUp({ email:email(), password:pass(),
+      options:{ emailRedirectTo:'https://svnchezzz.github.io/finanzas-app/' } });
     if (error) { msg().textContent = traducirError_(error.message); return; }
     if (data.session) startApp_();
     else msg().textContent = 'Cuenta creada. Ahora pulsa "Entrar" con ese mismo correo y contraseña.';
