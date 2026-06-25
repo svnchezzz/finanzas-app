@@ -1,7 +1,7 @@
 :root{
   --bg:#0a0e1a; --bg2:#0e1424; --surface:#121a2e; --surface2:#172139;
   --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.12);
-  --txt:#eef2ff; --muted:#8a97b8; --faint:#5b678a;
+  --txt:#eef2ff; --muted:#8a97b8; --faint:#737fa3;
   --primary:#4F46E5; --primary2:#6366F1; --primary-glow:rgba(99,102,241,.45);
   --income:#10B981; --expense:#F43F5E; --savings:#0EA5E9; --balance:#8B5CF6;
   --radius:18px; --radius-sm:12px;
@@ -47,7 +47,6 @@ body{font-family:var(--sans);color:var(--txt);
 .appbar-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
 .subbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
 .brand{display:flex;align-items:center;gap:9px}
-.brand-mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--primary2),var(--savings));box-shadow:0 6px 18px var(--primary-glow)}
 .brand-name{font-family:var(--display);font-weight:700;font-size:20px;letter-spacing:-.4px;white-space:nowrap}
 .brand-tag{color:#fff;font-size:11px;font-weight:700;letter-spacing:1px;background:linear-gradient(135deg,var(--primary),var(--primary2));padding:2px 7px;border-radius:6px;margin-top:2px}
 .period-nav{display:flex;align-items:center;gap:6px;position:relative}
@@ -94,7 +93,7 @@ body{font-family:var(--sans);color:var(--txt);
 .btn-ghost .bi{font-size:14px;line-height:1;display:inline-flex;align-items:center}
 .btn-ghost .bi svg{display:block}
 .export-top{font-size:13px}
-.icon-btn{border:0;background:transparent;color:var(--muted);font-size:16px;cursor:pointer;width:32px;height:32px;border-radius:9px;transition:.2s}
+.icon-btn{border:0;background:transparent;color:var(--muted);font-size:16px;cursor:pointer;width:40px;height:40px;border-radius:10px;transition:.2s}
 .icon-btn:hover{background:var(--surface2);color:var(--txt)}
 
 .viewtabs{position:relative;display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:22px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
@@ -305,10 +304,6 @@ input[type=date]{color-scheme:dark}
 @keyframes toastIn{0%{opacity:0;transform:translateY(20px) scale(.9)}60%{transform:translateY(-2px) scale(1.02)}100%{opacity:1;transform:none}}
 @keyframes toastOut{to{opacity:0;transform:translateY(12px) scale(.95)}}
 
-::-webkit-scrollbar{width:9px;height:9px}
-::-webkit-scrollbar-thumb{background:var(--surface2);border-radius:8px}
-::-webkit-scrollbar-thumb:hover{background:#243054}
-
 /* ===== Responsive ===== */
 @media(max-width:980px){
   .kpi-grid{grid-template-columns:repeat(2,1fr)}
@@ -435,9 +430,6 @@ input[type=date]{color-scheme:dark}
 .btn-primary.danger{background:#DC2626}
 .btn-primary.danger:hover{background:#B91C1C}
 
-.viewtabs{overflow-x:auto;-webkit-overflow-scrolling:touch}
-.viewtabs::-webkit-scrollbar{display:none}
-
 /* ════════════════════════════════════════════════════════════════════
    Barra responsive (menú "Más") + scrollbar oscura
    ════════════════════════════════════════════════════════════════════ */
@@ -497,7 +489,6 @@ html{color-scheme:dark}
 /* Marca compacta para que no empuje los botones */
 .brand{ min-width:0; flex:0 1 auto; overflow:hidden; }
 .brand-name{
-  font-size:19px;
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -542,31 +533,52 @@ body.no-scroll{ overflow:hidden; }
 }
 .brand-mark img{ width:100%; height:100%; object-fit:cover; display:block; }
 
-/* Desactivar el "pull-to-refresh" nativo: lo controlamos a mano */
+/* Desactivar el "pull-to-refresh" nativo del navegador */
 html, body{ overscroll-behavior-y: contain; }
-
-/* Pull-to-refresh eliminado: el indicador queda oculto siempre. */
-#ptr{ display:none !important; }
-#ptr.legacy{
-  position:fixed; top:0; left:0; right:0;
-  display:flex; align-items:center; justify-content:center;
-  height:0; opacity:0; pointer-events:none;
-  z-index:60; color:var(--primary2);
-  transition:opacity .18s var(--ease);
-}
-#ptr.show{ opacity:1; height:54px; }
-.ptr-spin{
-  width:26px; height:26px; border-radius:50%;
-  border:3px solid var(--line2);
-  border-top-color:var(--primary2);
-  transform:rotate(0deg);
-}
-#ptr.ready .ptr-spin{ border-top-color:var(--savings); }
-#ptr.loading .ptr-spin{ animation:ptrSpin .7s linear infinite; }
-@keyframes ptrSpin{ to{ transform:rotate(360deg); } }
 
 /* Más aire en los textos al elegir "Ahorro" */
 #sourceRow{ margin-top:18px; }
 #sourceRow .hint{ margin-top:10px; line-height:1.5; }
 #goalRow{ margin-top:18px; }
 #goalRow .field-label{ margin-top:0; }
+
+/* ════════════════════════════════════════════════════════════════════
+   Estado vacío del panel (usuarios nuevos)
+   ════════════════════════════════════════════════════════════════════ */
+.empty-hero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;
+  padding:48px 20px;animation:fadeUp .5s var(--ease) both}
+.empty-hero[hidden]{display:none}
+/* Con el panel vacío, ocultar las tarjetas y gráficos (sin tocar display por JS) */
+#view-dashboard.is-empty .kpi-grid,
+#view-dashboard.is-empty .donut-grid,
+#view-dashboard.is-empty .dash-row{display:none}
+.empty-hero .eh-icon{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;margin-bottom:8px;
+  color:#fff;background:linear-gradient(135deg,var(--primary2),var(--savings));box-shadow:0 14px 34px -12px var(--primary-glow)}
+.empty-hero h2{font-family:var(--display);font-size:20px;font-weight:700}
+.empty-hero p{color:var(--muted);font-size:14px;line-height:1.6;max-width:340px;margin:0 0 6px}
+.empty-hero p b{color:var(--txt)}
+.empty-hero .btn-primary{margin-top:8px}
+
+/* ════════════════════════════════════════════════════════════════════
+   Barra de navegación inferior (solo móvil)
+   ════════════════════════════════════════════════════════════════════ */
+.bottomnav{display:none}
+@media(max-width:680px){
+  .viewtabs{display:none}
+  .bottomnav{
+    display:flex;position:fixed;left:0;right:0;bottom:0;z-index:90;
+    background:rgba(10,14,26,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-top:1px solid var(--line);
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px));
+  }
+  .bn-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+    border:0;background:transparent;color:var(--muted);
+    font-family:var(--sans);font-size:10.5px;font-weight:600;
+    padding:7px 2px;min-height:52px;cursor:pointer;border-radius:12px;
+    transition:color .2s var(--ease)}
+  .bn-item svg{width:23px;height:23px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .bn-item.active{color:var(--primary2)}
+  .bn-item:active{transform:scale(.94)}
+  .app-body{padding-bottom:calc(80px + env(safe-area-inset-bottom,0px))}
+  #toasts{bottom:calc(78px + env(safe-area-inset-bottom,0px))}
+}

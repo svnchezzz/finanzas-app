@@ -19,7 +19,6 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="ptr" aria-hidden="true"><span class="ptr-spin"></span></div>
   <div id="boot">
     <div class="boot-logo"><span class="dot"></span>Control Finanzas MS</div>
     <div class="boot-bar"><span></span></div>
@@ -38,8 +37,6 @@
           <details class="ovf" id="ovfMenu">
             <summary class="btn-ghost ovf-trigger" aria-label="Más opciones" title="Más">⋯</summary>
             <div class="ovf-panel">
-              <button class="btn-ghost notify-top" id="settingsBtn" aria-label="Ajustes"><span class="bi">⚙️</span><span class="btn-label">Ajustes</span></button>
-              <button class="btn-ghost notify-top" id="notifyBtn" aria-label="Notificaciones"><span class="bi">🔔</span><span class="btn-label">Notificaciones</span></button>
               <button class="btn-ghost export-top" id="exportBtn" aria-label="Exportar">
                 <span class="bi"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10.5l5 5 5-5"/><path d="M5 21h14"/></svg></span>
                 <span class="btn-label">Exportar</span>
@@ -82,6 +79,14 @@
     <main class="content">
       <!-- PANEL -->
       <section class="view" id="view-dashboard">
+        <div class="empty-hero" id="dashEmpty" hidden>
+          <div class="eh-icon">
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
+          </div>
+          <h2>Empieza a controlar tus finanzas</h2>
+          <p>Aún no has registrado movimientos. Pulsa <b>Agregar</b> para añadir tu primer ingreso, gasto o ahorro.</p>
+          <button class="btn-primary" id="emptyAddBtn"><span class="plus">＋</span> Agregar movimiento</button>
+        </div>
         <div class="kpi-grid">
           <div class="kpi kpi-income">
             <div class="kpi-top"><span class="kpi-icon">↘</span><span class="kpi-label">Ingresos</span></div>
@@ -194,6 +199,39 @@
         <div class="cat-cols" id="catCols"></div>
       </section>
     </main>
+    </div>
+
+    <!-- Barra de navegación inferior (solo móvil) -->
+    <nav class="bottomnav" id="bottomNav" aria-label="Navegación">
+      <button class="bn-item active" data-view="dashboard" aria-label="Panel">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        <span>Panel</span>
+      </button>
+      <button class="bn-item" data-view="history" aria-label="Historial">
+        <svg viewBox="0 0 24 24"><path d="M3 5h18"/><path d="M3 12h18"/><path d="M3 19h18"/></svg>
+        <span>Historial</span>
+      </button>
+      <button class="bn-item" data-view="pending" aria-label="Pendientes">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <span>Pendientes</span>
+      </button>
+      <button class="bn-item" data-view="goals" aria-label="Metas">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>
+        <span>Metas</span>
+      </button>
+      <button class="bn-item bn-more" id="bnMore" aria-label="Más">
+        <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+        <span>Más</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Menú "Más" (móvil) -->
+  <div class="sheet-backdrop" id="moreBackdrop">
+    <div class="action-menu" id="moreMenu">
+      <button class="action-opt" data-view="budgets"><span>📊</span>Presupuestos</button>
+      <button class="action-opt" data-view="recurring"><span>🔁</span>Recurrentes</button>
+      <button class="action-opt" data-view="categories"><span>🏷️</span>Categorías</button>
     </div>
   </div>
 
@@ -359,60 +397,12 @@
     </div>
   </div>
 
-  <!-- Modal notificaciones -->
-  <div class="modal-backdrop" id="notifyBackdrop">
-    <div class="modal" id="notifyModal">
-      <div class="modal-head"><h2>Notificaciones por correo</h2><button class="icon-btn" id="notifyClose">✕</button></div>
-      <div class="modal-body">
-        <p class="hint" style="margin-top:0">Recibe avisos de tus pendientes: al crearlos, un día antes de la fecha acordada y un día después si quedan vencidos.</p>
-
-        <label class="field-label">Correo electrónico</label>
-        <input type="email" id="notifyEmail" class="full-input" placeholder="tucorreo@ejemplo.com" autocomplete="email">
-
-        <label class="toggle-row">
-          <span>Activar notificaciones</span>
-          <span class="switch"><input type="checkbox" id="notifyEnabled"><span class="slider"></span></span>
-        </label>
-
-        <p class="hint" id="notifyStatus"></p>
-      </div>
-      <div class="modal-foot">
-        <button class="btn-ghost" id="notifyTest">Enviar prueba</button>
-        <button class="btn-primary" id="notifySave">Guardar</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Modal confirmación / mini-input -->
   <div class="modal-backdrop" id="confirmBackdrop">
     <div class="modal sm" id="confirmModal" style="width:min(420px,94vw)">
       <div class="modal-head"><h2 id="confirmTitle">¿Confirmar?</h2><button class="icon-btn" id="confirmCancel">✕</button></div>
       <div class="modal-body"><div id="confirmMsg" class="confirm-msg"></div></div>
       <div class="modal-foot"><button class="btn-ghost" id="confirmCancelBtn" onclick="closeConfirm()">Cancelar</button><button class="btn-primary danger" id="confirmOk">Confirmar</button></div>
-    </div>
-  </div>
-
-  <!-- Modal ajustes -->
-  <div class="modal-backdrop" id="settingsBackdrop">
-    <div class="modal" id="settingsModal">
-      <div class="modal-head"><h2>Ajustes</h2><button class="icon-btn" id="settingsClose">✕</button></div>
-      <div class="modal-body">
-        <div class="two-col">
-          <div><label class="field-label">Símbolo de moneda</label><input type="text" id="setCurrency" class="full-input" maxlength="4" placeholder="$"></div>
-          <div><label class="field-label">Decimales</label>
-            <select id="setDecimals" class="select"><option value="0">0 (1.000)</option><option value="2">2 (1.000,00)</option></select>
-          </div>
-        </div>
-        <label class="field-label">Formato regional</label>
-        <select id="setLocale" class="select">
-          <option value="es-CO">Colombia (es-CO)</option>
-          <option value="es-MX">México (es-MX)</option>
-          <option value="es-ES">España (es-ES)</option>
-          <option value="en-US">Estados Unidos (en-US)</option>
-        </select>
-        <p class="hint" id="settingsStatus"></p>
-      </div>
-      <div class="modal-foot"><button class="btn-ghost" onclick="closeSettings()">Cancelar</button><button class="btn-primary" id="settingsSave">Guardar</button></div>
     </div>
   </div>
 

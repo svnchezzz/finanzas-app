@@ -185,6 +185,8 @@ async function init(){
   const boot=document.getElementById('boot');
   boot.classList.add('gone'); setTimeout(function(){boot.style.display='none';},520);
   document.getElementById('app').classList.remove('hidden');
+  // Los gráficos se crean mientras #app está oculto; al mostrarlo, recalcular tamaño.
+  requestAnimationFrame(function(){try{Object.keys(S.charts).forEach(function(k){if(S.charts[k])S.charts[k].resize();});}catch(e){}});
   notifStartup();
 }
 
@@ -229,12 +231,15 @@ function wireUI(){
   document.getElementById('btnXlsx').onclick=function(){runExport('excel',this);};
   document.getElementById('btnPdf').onclick=function(){runExport('pdf',this);};
 
-  // Notificaciones
-  document.getElementById('notifyBtn').onclick=openNotify;
-  document.getElementById('notifyClose').onclick=closeNotify;
-  document.getElementById('notifyBackdrop').addEventListener('click',function(e){if(e.target.id==='notifyBackdrop')closeNotify();});
-  document.getElementById('notifySave').onclick=saveNotify;
-  document.getElementById('notifyTest').onclick=testNotify;
+  // Navegación inferior (móvil)
+  const bn=document.getElementById('bottomNav');
+  if(bn)bn.addEventListener('click',function(e){const b=e.target.closest('.bn-item');if(!b)return;if(b.id==='bnMore'){openMore();return;}goToView(b.dataset.view);});
+  document.getElementById('moreBackdrop').addEventListener('click',function(e){
+    if(e.target.id==='moreBackdrop'){closeMore();return;}
+    const opt=e.target.closest('.action-opt');if(opt){closeMore();goToView(opt.dataset.view);}
+  });
+  const emptyAdd=document.getElementById('emptyAddBtn');
+  if(emptyAdd)emptyAdd.onclick=openActionMenu;
 
   // Pendientes
   document.getElementById('pendSeg').addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;setSeg('pendSeg',b);S.pendFilter=b.dataset.pf;renderPending();});
@@ -272,12 +277,6 @@ function wireUI(){
   document.getElementById('confirmBackdrop').addEventListener('click',function(e){if(e.target.id==='confirmBackdrop')closeConfirm();});
   document.getElementById('confirmOk').onclick=function(){const cb=S.confirmCb;closeConfirm();if(cb)cb();};
 
-  // Ajustes
-  document.getElementById('settingsBtn').onclick=openSettings;
-  document.getElementById('settingsClose').onclick=closeSettings;
-  document.getElementById('settingsBackdrop').addEventListener('click',function(e){if(e.target.id==='settingsBackdrop')closeSettings();});
-  document.getElementById('settingsSave').onclick=saveSettings;
-
   // Recurrencias (modal)
   document.getElementById('recurClose').onclick=closeRecurModal;
   document.getElementById('recurCancel').onclick=closeRecurModal;
@@ -298,7 +297,7 @@ function wireUI(){
   document.getElementById('goalSaved').addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);});
   document.getElementById('goalSwatchRow').addEventListener('click',function(e){const s=e.target.closest('.swatch');if(!s)return;S.goal.color=s.dataset.color;markSwatch('goalSwatchRow',S.goal.color);});
 
-  document.addEventListener('keydown',function(e){if(e.key==='Escape'){closeModal();closeActionMenu();closeExport();closeCal();closePendModal();closeNotify();closeEditCat();closeConfirm();closeSettings();closeRecurModal();closeGoalModal();}});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'){closeModal();closeActionMenu();closeMore();closeExport();closeCal();closePendModal();closeEditCat();closeConfirm();closeRecurModal();closeGoalModal();}});
 }
 function setSeg(id,btn){document.querySelectorAll('#'+id+' button').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');}
 
@@ -318,8 +317,24 @@ function switchView(view,btn){
   document.querySelectorAll('.vtab').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');
   ['dashboard','history','pending','categories','budgets','recurring','goals'].forEach(function(v){const el=document.getElementById('view-'+v);if(el)el.classList.toggle('hidden',v!==view);});
   moveTabInk(btn);
+  syncBottomNav(view);
   renderCurrentView();
 }
+/* Cambiar de vista desde la barra inferior, reutilizando la pestaña superior */
+function goToView(view){
+  const vt=document.querySelector('.vtab[data-view="'+view+'"]');
+  if(vt)switchView(view,vt);
+}
+/* Resaltar el ítem correcto en la barra inferior (los secundarios marcan "Más") */
+function syncBottomNav(view){
+  const main=['dashboard','history','pending','goals'];
+  document.querySelectorAll('.bn-item').forEach(function(b){
+    if(b.id==='bnMore')b.classList.toggle('active',main.indexOf(view)===-1);
+    else b.classList.toggle('active',b.dataset.view===view);
+  });
+}
+function openMore(){const b=document.getElementById('moreBackdrop');b.style.display='flex';requestAnimationFrame(function(){b.classList.add('show');});}
+function closeMore(){const b=document.getElementById('moreBackdrop');if(!b)return;b.classList.remove('show');setTimeout(function(){b.style.display='none';},250);}
 function renderCurrentView(){
   const v=S.view;
   if(v==='history')renderHistory();
@@ -340,6 +355,13 @@ function renderAll(){
 
 /* ── Panel ── */
 function renderDashboard(){
+  // Estado vacío para usuarios nuevos (sin ningún movimiento registrado)
+  const hasAny=allMovements().length>0;
+  const empty=document.getElementById('dashEmpty');
+  if(empty)empty.hidden=hasAny;
+  const dash=document.getElementById('view-dashboard');
+  if(dash)dash.classList.toggle('is-empty',!hasAny);
+  if(!hasAny)return;
   const list=periodTx();
   const inc=sumType(list,'Income'),exp=sumType(list,'Expense'),sav=savingsNet(list),bal=globalDisponible();
   countUp('income',inc);countUp('expense',exp);countUp('savings',sav);countUp('balance',bal);
@@ -997,42 +1019,6 @@ function downloadB64(res){
   }catch(e){toast('Descarga bloqueada por el navegador','err');}
 }
 
-/* ── Notificaciones ── */
-function openNotify(){
-  document.getElementById('notifyEmail').value=S.settings.notifyEmail||'';
-  document.getElementById('notifyEnabled').checked=!!S.settings.notifyEnabled;
-  document.getElementById('notifyStatus').textContent='';
-  const bk=document.getElementById('notifyBackdrop');bk.style.display='flex';requestAnimationFrame(function(){bk.classList.add('show');});
-}
-function closeNotify(){const bk=document.getElementById('notifyBackdrop');bk.classList.remove('show');setTimeout(function(){bk.style.display='none';},250);}
-function validEmail(e){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);}
-function saveNotify(){
-  const email=document.getElementById('notifyEmail').value.trim();
-  const enabled=document.getElementById('notifyEnabled').checked;
-  if(enabled&&!validEmail(email)){toast('Ingresa un correo válido','err');return;}
-  const btn=document.getElementById('notifySave'); btn.disabled=true;
-  document.getElementById('notifyStatus').textContent='Guardando…';
-  gs('saveNotifySettings',email,enabled).then(function(res){
-    S.settings.notifyEmail=res.notifyEmail; S.settings.notifyEnabled=res.notifyEnabled;
-    document.getElementById('notifyStatus').textContent=enabled?'Notificaciones activadas para '+email:'Notificaciones desactivadas.';
-    btn.disabled=false; toast('Preferencias guardadas','ok');
-  }).catch(function(err){btn.disabled=false;document.getElementById('notifyStatus').textContent='Error: '+(err&&err.message?err.message:err);toast('No se pudo guardar','err');});
-}
-function testNotify(){
-  const email=document.getElementById('notifyEmail').value.trim();
-  if(!validEmail(email)){toast('Ingresa un correo válido','err');return;}
-  const btn=document.getElementById('notifyTest'); btn.disabled=true;
-  document.getElementById('notifyStatus').textContent='Enviando correo de prueba…';
-  // guarda primero para que el backend tenga el correo, luego envía la prueba
-  gs('saveNotifySettings',email,document.getElementById('notifyEnabled').checked).then(function(){
-    return gs('probarNotificacion');
-  }).then(function(msg){
-    S.settings.notifyEmail=email;
-    document.getElementById('notifyStatus').textContent='✓ '+msg+'. Revisa tu bandeja (y spam).';
-    btn.disabled=false; toast('Correo de prueba enviado','ok');
-  }).catch(function(err){btn.disabled=false;document.getElementById('notifyStatus').textContent='Error: '+(err&&err.message?err.message:err);toast('No se pudo enviar','err');});
-}
-
 /* ═══════════════ PRESUPUESTOS ═══════════════ */
 function budgetFor(category){const b=S.budgets.find(function(x){return x.category===category;});return b?b.amount:0;}
 function monthExpenseByCategory(){
@@ -1392,28 +1378,6 @@ function saveGoal(){
     gs('addGoal',g).then(function(saved){const i=S.goals.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.goals[i]=saved;toast('Meta creada','ok');if(window.Notif)evalGoal(saved||temp,true);})
       .catch(function(){S.goals=S.goals.filter(function(x){return x.id!==temp.id;});renderGoals();toast('No se pudo guardar','err');});
   }
-}
-
-/* ═══════════════ AJUSTES ═══════════════ */
-function openSettings(){
-  document.getElementById('setCurrency').value=S.settings.currencySymbol||'$';
-  document.getElementById('setDecimals').value=String(S.settings.decimals||0);
-  document.getElementById('setLocale').value=S.settings.locale||'es-CO';
-  document.getElementById('settingsStatus').textContent='';
-  const bk=document.getElementById('settingsBackdrop');bk.style.display='flex';requestAnimationFrame(function(){bk.classList.add('show');});
-}
-function closeSettings(){const bk=document.getElementById('settingsBackdrop');bk.classList.remove('show');setTimeout(function(){bk.style.display='none';},250);}
-function saveSettings(){
-  const cur=(document.getElementById('setCurrency').value||'$').trim()||'$';
-  const dec=parseInt(document.getElementById('setDecimals').value,10)||0;
-  const loc=document.getElementById('setLocale').value||'es-CO';
-  const btn=document.getElementById('settingsSave');btn.disabled=true;
-  document.getElementById('settingsStatus').textContent='Guardando…';
-  gs('saveAppSettings',cur,dec,loc).then(function(s){
-    S.settings.currencySymbol=s.currencySymbol;S.settings.decimals=s.decimals;S.settings.locale=s.locale;
-    btn.disabled=false;document.getElementById('settingsStatus').textContent='Guardado.';
-    renderAll();toast('Ajustes guardados','ok');setTimeout(closeSettings,500);
-  }).catch(function(err){btn.disabled=false;document.getElementById('settingsStatus').textContent='Error: '+(err&&err.message?err.message:err);toast('No se pudo guardar','err');});
 }
 
 /* ── Toasts / util ── */
