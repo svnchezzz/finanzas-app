@@ -705,48 +705,7 @@ async function refreshData_(){
 }
 window.refreshData = refreshData_;
 
-/* Gesto: tirar hacia abajo (estando arriba del todo) para refrescar */
-(function(){
-  let startY=0, pulling=false, ind=null;
-  function scroller(){ return document.scrollingElement || document.documentElement; }
-  function ensureInd(){
-    if(ind) return;
-    const css=document.createElement('style');
-    css.textContent='#ptr-ind{position:fixed;left:50%;top:0;transform:translate(-50%,-44px);z-index:650;'
-      +'background:#1D4ED8;color:#fff;font:600 12px \'Inter\',system-ui,sans-serif;padding:8px 16px;'
-      +'border-radius:0 0 14px 14px;transition:transform .15s ease;box-shadow:0 4px 14px rgba(0,0,0,.35)}'
-      +'#ptr-ind.show{transform:translate(-50%,0)}';
-    document.head.appendChild(css);
-    ind=document.createElement('div'); ind.id='ptr-ind';
-    ind.textContent='↓ Suelta para actualizar';
-    document.body.appendChild(ind);
-  }
-  function modalAbierto(){ return !!document.querySelector('.backdrop.show, [id$="Backdrop"].show'); }
-  function alTope(){
-    const se = scroller();
-    const cont = document.querySelector('.app-main, main, #app') || document.body;
-    const topDoc = se ? se.scrollTop : 0;
-    const topCont = cont ? cont.scrollTop : 0;
-    return topDoc <= 2 && topCont <= 2;
-  }
-  window.addEventListener('touchstart', function(e){
-    pulling = (alTope() && e.touches.length===1 && !modalAbierto());
-    if(pulling) startY=e.touches[0].clientY;
-  }, {passive:true});
-  window.addEventListener('touchmove', function(e){
-    if(!pulling) return;
-    const dy=e.touches[0].clientY-startY;
-    if(dy>110 && alTope()){ ensureInd(); ind.classList.add('show'); }
-    else if(ind){ ind.classList.remove('show'); }
-  }, {passive:true});
-  window.addEventListener('touchend', function(){
-    if(pulling && ind && ind.classList.contains('show')){
-      ind.classList.remove('show');
-      if(window.refreshData) window.refreshData();
-    }
-    pulling=false;
-  }, {passive:true});
-})();
+/* Pull-to-refresh (gesto de tirar hacia abajo) eliminado por completo. */
 
 /* Actualizar solo cuando vuelve el internet mientras usas la app */
 (function(){

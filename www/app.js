@@ -318,9 +318,6 @@ function switchView(view,btn){
   ['dashboard','history','pending','categories','budgets','recurring','goals'].forEach(function(v){const el=document.getElementById('view-'+v);if(el)el.classList.toggle('hidden',v!==view);});
   moveTabInk(btn);
   renderCurrentView();
-  // Reinicio interno al cambiar de pestaña: volver arriba sin animación para
-  // que la nueva vista no quede "pegada" en una posición de scroll vieja.
-  try{ window.scrollTo(0,0); }catch(e){ document.documentElement.scrollTop=0; document.body.scrollTop=0; }
 }
 function renderCurrentView(){
   const v=S.view;
