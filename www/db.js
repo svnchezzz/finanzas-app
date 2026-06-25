@@ -559,7 +559,23 @@ function injectLogin_(){
   #login-card .lbtn{width:100%;border:0;border-radius:12px;padding:13px;margin-top:18px;cursor:pointer;
     font-family:inherit;font-weight:700;font-size:15px;background:linear-gradient(135deg,#4F46E5,#6366F1);color:#fff}
   #login-card .lbtn.ghost{background:transparent;border:1px solid rgba(255,255,255,.12);margin-top:10px}
-  #login-msg{font-size:13px;color:#F43F5E;margin-top:12px;min-height:18px;text-align:center}`;
+  #login-msg{font-size:13px;color:#F43F5E;margin-top:12px;min-height:18px;text-align:center}
+  #signup-ov{position:fixed;inset:0;z-index:600;display:none;align-items:center;justify-content:center;padding:24px;
+    background:rgba(5,8,16,.66)}
+  #signup-ov.show{display:flex}
+  #signup-card{width:min(400px,92vw);background:linear-gradient(160deg,#121a2e,#0e1424);
+    border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:30px 26px;text-align:center;
+    box-shadow:0 24px 60px -20px rgba(0,0,0,.8);font-family:'Inter',system-ui,sans-serif;color:#eef2ff;
+    animation:supop .35s cubic-bezier(.34,1.32,.5,1) both}
+  @keyframes supop{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
+  #signup-card .mail{width:58px;height:58px;border-radius:16px;margin:0 auto 18px;display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(135deg,#6366F1,#0EA5E9);box-shadow:0 12px 30px -10px rgba(99,102,241,.6)}
+  #signup-card .mail svg{width:30px;height:30px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  #signup-card h2{font-family:'Space Grotesk','Inter',sans-serif;font-size:21px;margin:0 0 10px}
+  #signup-card p{color:#8a97b8;font-size:14px;line-height:1.6;margin:0 auto 6px;max-width:310px}
+  #signup-card p b{color:#eef2ff}
+  #signup-card .lbtn{width:100%;border:0;border-radius:12px;padding:13px;margin-top:22px;cursor:pointer;
+    font-family:inherit;font-weight:700;font-size:15px;background:linear-gradient(135deg,#4F46E5,#6366F1);color:#fff}`;
   document.head.appendChild(css);
 
   const ov = document.createElement('div');
@@ -578,17 +594,39 @@ function injectLogin_(){
     </div>`;
   document.body.appendChild(ov);
 
+  // Recuadro de "confirma tu correo" tras crear la cuenta
+  const sup = document.createElement('div');
+  sup.id = 'signup-ov';
+  sup.innerHTML = `
+    <div id="signup-card">
+      <div class="mail"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></div>
+      <h2>¡Casi listo!</h2>
+      <p>Te enviamos un correo de confirmación a <b id="signup-email">tu correo</b>.</p>
+      <p>Ábrelo y confirma tu dirección (revisa también la carpeta de spam). Después vuelve aquí e <b>inicia sesión</b>.</p>
+      <button class="lbtn" id="signup-ok">Entendido</button>
+    </div>`;
+  document.body.appendChild(sup);
+  function closeSignup_(){
+    sup.classList.remove('show');
+    const p=document.getElementById('login-pass'); if(p) p.value='';
+    document.getElementById('login-msg').textContent='Confirma tu correo y luego pulsa "Entrar".';
+    document.getElementById('login-msg').style.color='#10B981';
+  }
+  document.getElementById('signup-ok').onclick = closeSignup_;
+  sup.addEventListener('click', function(ev){ if(ev.target.id==='signup-ov') closeSignup_(); });
+
   const msg = ()=>document.getElementById('login-msg');
   const email = ()=>document.getElementById('login-email').value.trim();
   const pass  = ()=>document.getElementById('login-pass').value;
 
   document.getElementById('login-in').onclick = async ()=>{
-    msg().textContent='Entrando…';
+    msg().style.color='#F43F5E'; msg().textContent='Entrando…';
     const { error } = await sb.auth.signInWithPassword({ email:email(), password:pass() });
     if (error) msg().textContent = traducirError_(error.message);
     else startApp_();
   };
   document.getElementById('login-up').onclick = async ()=>{
+    msg().style.color='#F43F5E';
     if (!email() || !pass()){
       msg().textContent = 'Escribe tu correo y contraseña arriba, luego pulsa "Crear cuenta nueva".';
       return;
@@ -602,7 +640,11 @@ function injectLogin_(){
       options:{ emailRedirectTo:'https://svnchezzz.github.io/finanzas-app/' } });
     if (error) { msg().textContent = traducirError_(error.message); return; }
     if (data.session) startApp_();
-    else msg().textContent = 'Cuenta creada. Ahora pulsa "Entrar" con ese mismo correo y contraseña.';
+    else {
+      document.getElementById('signup-email').textContent = email() || 'tu correo';
+      msg().textContent = '';
+      sup.classList.add('show');
+    }
   };
 }
 function traducirError_(m){
