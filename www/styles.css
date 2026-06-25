@@ -13,7 +13,12 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
-html{scroll-behavior:smooth}
+/* Sin scroll suave global: en Android WebView pelea con el gesto de subir y
+   provoca saltos. Los scrolls suaves que sí queremos los pide el JS a mano. */
+html{scroll-behavior:auto}
+/* Evitar que el navegador "ancle" el scroll cuando algo arriba cambia de alto
+   (gráficos, listas) y te empuje de vuelta hacia abajo. */
+html,body{overflow-anchor:none}
 body{font-family:var(--sans);color:var(--txt);
   background:radial-gradient(1200px 600px at 80% -10%, rgba(79,70,229,.18), transparent 60%),
     radial-gradient(900px 500px at -10% 10%, rgba(14,165,233,.12), transparent 55%),var(--bg);
@@ -540,8 +545,9 @@ body.no-scroll{ overflow:hidden; }
 /* Desactivar el "pull-to-refresh" nativo: lo controlamos a mano */
 html, body{ overscroll-behavior-y: contain; }
 
-/* Indicador de recarga (solo visible al tirar desde arriba del todo) */
-#ptr{
+/* Pull-to-refresh eliminado: el indicador queda oculto siempre. */
+#ptr{ display:none !important; }
+#ptr.legacy{
   position:fixed; top:0; left:0; right:0;
   display:flex; align-items:center; justify-content:center;
   height:0; opacity:0; pointer-events:none;
