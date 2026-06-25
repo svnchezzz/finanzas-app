@@ -30,7 +30,7 @@
       <div class="appbar-inner">
         <div class="brand">
           <span class="brand-mark"></span>
-          <span class="brand-name">Control F.</span>
+          <span class="brand-name">Control Finanzas</span>
           <span class="brand-tag">MS</span>
         </div>
         <div class="appbar-actions">
@@ -225,6 +225,16 @@
             <button data-source="Other">Otra fuente</button>
           </div>
           <p class="hint" id="sourceHint">Se descuenta de tu saldo de salario.</p>
+        </div>
+
+        <div id="goalRow" class="hidden">
+          <label class="field-label">¿Para una meta de ahorro? (opcional)</label>
+          <select id="txGoalSelect" class="full-input"></select>
+          <div id="txNewGoalRow" class="hidden" style="margin-top:10px">
+            <input type="text" id="txNewGoalName" class="full-input" placeholder="Nombre de la meta (ej. Fondo de emergencia)" maxlength="40" style="margin-bottom:10px">
+            <div class="amount-field"><span class="cur" id="txNewGoalCur">$</span>
+              <input type="text" inputmode="numeric" id="txNewGoalTarget" placeholder="Objetivo (ej. 5.000.000)" autocomplete="off"></div>
+          </div>
         </div>
 
         <label class="check-row hidden" id="fromSavingsRow"><input type="checkbox" id="fromSavings"> <span>Pagar con dinero del ahorro (sale de tu ahorro y cuenta como gasto)</span></label>
@@ -501,9 +511,6 @@
   </script>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script> 
   <script src="app.js"></script>
   <script src="db.js"></script>
 </body>

@@ -472,81 +472,24 @@ html{color-scheme:dark}
 @media(max-width:420px){
   .brand-name{font-size:16px}
   .appbar-inner{gap:8px;padding:13px 12px}
-  
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   BARRA SUPERIOR: más grande, con espacio para la cámara del celular,
-   y sin los botones de Ajustes (moneda) y Notificaciones.
+   BARRA SUPERIOR: tamaño, márgenes, orden y logo (todos los ajustes)
    ════════════════════════════════════════════════════════════════════ */
 
-/* Empuja el contenido por debajo de la cámara/notch del celular */
+/* Más espacio arriba (cámara/notch) y barra más alta */
 .appbar-inner{
   padding-top: calc(18px + env(safe-area-inset-top, 0px));
   padding-bottom: 18px;
   min-height: 60px;
-}
-
-/* Logo y marca más grandes */
-.brand-mark{ width:34px; height:34px; border-radius:10px; }
-.brand-name{ font-size:23px; }
-.brand-tag{ font-size:12px; padding:3px 9px; }
-
-/* Botones de la barra más grandes y fáciles de tocar */
-.appbar-actions .btn-primary,
-.appbar-actions .btn-ghost{
-  padding:12px 18px;
-  font-size:15px;
-  border-radius:13px;
-}
-.appbar-actions .add-btn .plus{ font-size:21px; }
-.appbar-actions .btn-ghost .bi svg{ width:20px; height:20px; }
-#logout-btn svg{ display:block; }
-
-/* Ocultar Ajustes (cambiar moneda) y Notificaciones por ahora */
-#settingsBtn, #notifyBtn{ display:none !important; }
-
-/* ════════════════════════════════════════════════════════════════════
-   BARRA: Añadir a la izquierda · menú ⋯ a la derecha (Salir va dentro)
-   ════════════════════════════════════════════════════════════════════ */
-.appbar-inner{ flex-wrap:nowrap; }
-.appbar-actions{ flex-wrap:nowrap; }
-.appbar-actions .add-btn{ order:1; }     /* Añadir queda a la izquierda */
-.appbar-actions #ovfMenu{ order:2; }     /* menú ⋯ queda a la derecha  */
-
-/* Nada de desplazamiento horizontal de la página */
-html, body{ overflow-x:hidden; }
-
-/* Bloquear el fondo cuando hay menú/modal abierto */
-body.no-scroll{ overflow:hidden; }
-
-/* Que el scroll no se "contagie" al dashboard de atrás, y usar la altura real del celular */
-.sheet-backdrop, .modal-backdrop{
-  overscroll-behavior: contain;
-  top:0; bottom:auto; height:100vh; height:100dvh;
-}
-
-/* El menú de Añadir: que quepa completo por encima de la barra del sistema */
-.action-menu{
-  margin-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-  max-height: 82vh;
-  overflow-y: auto;
-}
-.modal{ margin-bottom: env(safe-area-inset-bottom, 0px); }
-
-/* ════════════════════════════════════════════════════════════════════
-   AJUSTE FINO BARRA SUPERIOR: márgenes laterales + marca más compacta
-   para que el botón ⋯ no quede cortado en el borde derecho.
-   ════════════════════════════════════════════════════════════════════ */
-
-/* Aire a los lados (respeta los bordes curvos/cámara del celular) */
-.appbar-inner{
   padding-left: calc(16px + env(safe-area-inset-left, 0px));
   padding-right: calc(16px + env(safe-area-inset-right, 0px));
   gap: 10px;
+  flex-wrap: nowrap;
 }
 
-/* La marca ocupa solo lo necesario y deja sitio a los botones */
+/* Marca compacta para que no empuje los botones */
 .brand{ min-width:0; flex:0 1 auto; overflow:hidden; }
 .brand-name{
   font-size:19px;
@@ -554,12 +497,42 @@ body.no-scroll{ overflow:hidden; }
   overflow:hidden;
   text-overflow:ellipsis;
 }
-.brand-mark{ width:30px; height:30px; }
+.brand-tag{ font-size:12px; padding:3px 9px; }
 
-/* Los botones nunca se encogen ni se salen */
-.appbar-actions{ flex:0 0 auto; gap:8px; }
-.appbar-actions .add-btn,
-.appbar-actions #ovfMenu{ flex:0 0 auto; }
-
-/* El disparador ⋯ con tamaño cómodo y bien contenido */
+/* Botones grandes y que nunca se encojan */
+.appbar-actions{ flex:0 0 auto; gap:8px; flex-wrap:nowrap; }
+.appbar-actions .btn-primary,
+.appbar-actions .btn-ghost{ padding:12px 18px; font-size:15px; border-radius:13px; }
+.appbar-actions .add-btn{ order:1; flex:0 0 auto; }      /* Añadir a la izquierda */
+.appbar-actions #ovfMenu{ order:2; flex:0 0 auto; }      /* menú ⋯ a la derecha  */
+.appbar-actions .add-btn .plus{ font-size:21px; }
+.appbar-actions .btn-ghost .bi svg{ width:20px; height:20px; }
+#logout-btn svg{ display:block; }
 .ovf-trigger{ width:46px; height:44px; }
+
+/* Ocultar Ajustes (moneda) y Notificaciones */
+#settingsBtn, #notifyBtn{ display:none !important; }
+
+/* Sin desplazamiento horizontal; bloquear fondo con modal abierto */
+html, body{ overflow-x:hidden; }
+body.no-scroll{ overflow:hidden; }
+.sheet-backdrop, .modal-backdrop{
+  overscroll-behavior: contain;
+  top:0; bottom:auto; height:100vh; height:100dvh;
+}
+.action-menu{
+  margin-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  max-height: 82vh;
+  overflow-y: auto;
+}
+.modal{ margin-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* LOGO: chip blanco con tu ícono (debe ir al final para que mande) */
+.brand-mark{
+  width:32px; height:32px; border-radius:9px;
+  background:#fff;
+  box-shadow:0 4px 14px rgba(0,0,0,.25);
+  display:flex; align-items:center; justify-content:center;
+  overflow:hidden; padding:0;
+}
+.brand-mark img{ width:100%; height:100%; object-fit:cover; display:block; }

@@ -808,6 +808,7 @@ function openModal(type,editId){
   document.querySelectorAll('#sourceSeg button').forEach(function(b){b.classList.toggle('active',b.dataset.source===srcVal);});
   if(type==='Savings')S.modal.source=srcVal;
   document.getElementById('sourceHint').textContent=srcVal==='Salary'?'Se descuenta de tu saldo de salario.':'Proviene de otra fuente de fondos.';
+  setupGoalRow_(type,editing);
   buildChips(type); buildSwatches();
   if(editing){
     S.modal.category=tx.category; S.modal.color=tx.color;
@@ -821,6 +822,45 @@ function openModal(type,editId){
 }
 function markChip(rowId,name){const chips=document.querySelectorAll('#'+rowId+' .chip');chips.forEach(function(c){c.classList.toggle('active',c.dataset.name===name);});}
 function closeModal(){const bk=document.getElementById('modalBackdrop');bk.classList.remove('show');setTimeout(function(){bk.style.display='none';},250);}
+
+/* ── Meta de ahorro dentro del modal de movimiento ── */
+function setupGoalRow_(type, editing){
+  const row=document.getElementById('goalRow'); if(!row) return;
+  const show=(type==='Savings' && !editing);
+  row.classList.toggle('hidden', !show);
+  const newRow=document.getElementById('txNewGoalRow'); if(newRow) newRow.classList.add('hidden');
+  const nameI=document.getElementById('txNewGoalName'); if(nameI) nameI.value='';
+  const tgtI=document.getElementById('txNewGoalTarget'); if(tgtI) tgtI.value='';
+  const curEl=document.getElementById('txNewGoalCur'); if(curEl) curEl.textContent=S.settings.currencySymbol;
+  if(!show) return;
+  const sel=document.getElementById('txGoalSelect');
+  let opts='<option value="">Sin meta</option>';
+  (S.goals||[]).forEach(function(g){
+    opts+='<option value="'+g.id+'">'+esc(g.name)+' ('+money(g.saved)+' / '+money(g.target)+')</option>';
+  });
+  opts+='<option value="__new__">➕ Crear nueva meta…</option>';
+  sel.innerHTML=opts; sel.value='';
+  sel.onchange=function(){ document.getElementById('txNewGoalRow').classList.toggle('hidden', sel.value!=='__new__'); };
+  if(tgtI && !tgtI._wired){ tgtI._wired=true; tgtI.addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);}); }
+}
+function aplicarMetaAhorro_(metaSel, metaNewName, metaNewTarget, amount){
+  if(!metaSel) return;
+  if(window.isOffline && window.isOffline()){
+    toast('El ahorro se guardó. Asignarlo a una meta requiere conexión.','info'); return;
+  }
+  if(metaSel==='__new__'){
+    const g={name:metaNewName, target:metaNewTarget, saved:amount, color:(paletteFor('Savings')[0]||'#8B5CF6'), note:''};
+    const temp=Object.assign({id:'tmp-g'+Date.now()},g);
+    S.goals.push(temp); if(S.view==='goals')renderGoals();
+    gs('addGoal',g).then(function(saved){const i=S.goals.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.goals[i]=saved;if(S.view==='goals')renderGoals();toast('Meta creada y aporte sumado','ok');})
+      .catch(function(){S.goals=S.goals.filter(function(x){return x.id!==temp.id;});if(S.view==='goals')renderGoals();toast('No se pudo crear la meta','err');});
+  }else{
+    const g=S.goals.find(function(x){return x.id===metaSel;}); if(!g) return;
+    const prev=g.saved; g.saved=Math.max(0,g.saved+amount); if(S.view==='goals')renderGoals();
+    gs('contributeGoal',metaSel,amount).then(function(res){if(res&&typeof res.saved==='number'){g.saved=res.saved;if(S.view==='goals')renderGoals();}toast('Aporte sumado a "'+g.name+'"','ok');})
+      .catch(function(){g.saved=prev;if(S.view==='goals')renderGoals();toast('No se pudo sumar a la meta','err');});
+  }
+}
 function buildChips(type){
   const row=document.getElementById('chipRow'), cats=S.categories[type]||[];
   row.innerHTML=cats.map(function(c,i){return '<button class="chip'+(i===0?' active':'')+'" data-name="'+esc(c.name)+'" data-color="'+c.color+'" style="color:'+c.color+'"><span class="chip-dot" style="background:'+c.color+'"></span><span style="color:var(--txt)">'+esc(c.name)+'</span></button>';}).join('')+'<button class="chip add-chip"><span class="chip-dot" style="background:currentColor"></span>Nueva</button>';
@@ -847,6 +887,17 @@ function saveTx(){
   const amount=parseInt(String(document.getElementById('amountInput').value).replace(/\D/g,''),10)||0;
   if(amount<=0){toast('Ingresa un monto','err');return;}
   if(!S.modal.category){toast('Elige una categoría','err');return;}
+  let metaSel='', metaNewName='', metaNewTarget=0;
+  if(S.modal.type==='Savings' && !S.modal.id){
+    const selG=document.getElementById('txGoalSelect');
+    metaSel=selG?selG.value:'';
+    if(metaSel==='__new__'){
+      metaNewName=(document.getElementById('txNewGoalName').value||'').trim();
+      metaNewTarget=parseInt(String(document.getElementById('txNewGoalTarget').value).replace(/\D/g,''),10)||0;
+      if(!metaNewName){toast('Ponle nombre a la meta','err');return;}
+      if(metaNewTarget<=0){toast('Define el objetivo de la meta','err');return;}
+    }
+  }
   const tx={type:S.modal.type,category:S.modal.category,amount:amount,color:S.modal.color||'#64748B',
     note:document.getElementById('noteInput').value.trim(),date:document.getElementById('dateInput').value||ymd(new Date()),
     source:S.modal.type==='Savings'?S.modal.source:(S.modal.type==='Expense'&&document.getElementById('fromSavings').checked?'Savings':'')};
@@ -863,7 +914,7 @@ function saveTx(){
   }else{
     const temp=Object.assign({id:'tmp-'+Date.now(),timestamp:new Date().toISOString()},tx);
     S.transactions.push(temp); S.ref=parseYMD(tx.date); renderAll();
-    gs('addTransaction',tx).then(function(saved){const i=S.transactions.findIndex(function(t){return t.id===temp.id;});if(i>=0)S.transactions[i]=saved;toast(TXT.guardado+' · '+money(amount),'ok');})
+    gs('addTransaction',tx).then(function(saved){const i=S.transactions.findIndex(function(t){return t.id===temp.id;});if(i>=0)S.transactions[i]=saved;toast(TXT.guardado+' · '+money(amount),'ok');aplicarMetaAhorro_(metaSel,metaNewName,metaNewTarget,amount);})
       .catch(function(){S.transactions=S.transactions.filter(function(t){return t.id!==temp.id;});renderAll();toast(TXT.errGuardar,'err');});
   }
 }
@@ -1242,5 +1293,6 @@ function toast(msg,kind){
   setTimeout(function(){el.classList.add('out');setTimeout(function(){el.remove();},300);},2400);
 }
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
 window.S = S;
 window.renderAll = renderAll;

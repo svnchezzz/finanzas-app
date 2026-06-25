@@ -14,7 +14,7 @@
  * ───────────────────────────────────────────────────────────────────────────────────
  */
 const SUPABASE_URL = 'https://jjluniqevodygaojmhqn.supabase.co';
-const SUPABASE_KEY = 'sb_publishable__VD9Q4rWFEt7fhIj2hw9SA_9n1hv02m';   // <-- la que empieza por sb_publishable_
+const SUPABASE_KEY = 'sb_publishable__VD9Q4rWFEt7fhIj2hw9SA_9n1hv02m'; 
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -88,8 +88,25 @@ function enqueueDelete_(cid){
 
 /* Copia local de tus datos (para abrir la app sin internet) */
 function cacheKey_(){ return 'cf_cache_' + (CURRENT_USER_ID || 'anon'); }
-function saveSnapshotData_(data){ try{ localStorage.setItem(cacheKey_(), JSON.stringify({ at:Date.now(), data:data })); }catch(e){} }
-function loadSnapshot_(){ try{ const raw=localStorage.getItem(cacheKey_()); if(!raw) return null; return JSON.parse(raw).data; }catch(e){ return null; } }
+function saveSnapshotData_(data){
+  try{
+    const blob = JSON.stringify({ at:Date.now(), data:data });
+    localStorage.setItem(cacheKey_(), blob);
+    localStorage.setItem('cf_cache_last', blob);   // respaldo: última copia, sin depender del usuario
+  }catch(e){}
+}
+function loadSnapshot_(){
+  // 1) intenta la copia de este usuario; 2) si no, la última copia guardada
+  try{
+    const raw = localStorage.getItem(cacheKey_());
+    if(raw) return JSON.parse(raw).data;
+  }catch(e){}
+  try{
+    const raw2 = localStorage.getItem('cf_cache_last');
+    if(raw2) return JSON.parse(raw2).data;
+  }catch(e){}
+  return null;
+}
 let _snapT=null;
 function snapSoon_(){ clearTimeout(_snapT); _snapT=setTimeout(snapshotState_, 0); }
 function snapshotState_(){
@@ -191,6 +208,16 @@ function updateBar_(){
     bar.classList.remove('show');
   }
 }
+function setOfflineBar_(){
+  ensureBar_();
+  const bar=document.getElementById('offline-bar'); if(!bar) return;
+  const n=loadQueue_().length;
+  bar.style.background='#B45309';
+  bar.textContent = n>0
+    ? ('Sin conexión — '+n+' cambio'+(n===1?'':'s')+' se subirá'+(n===1?'':'n')+' al reconectar')
+    : 'Sin conexión — mostrando tus últimos datos guardados';
+  bar.classList.add('show');
+}
 window.addEventListener('online',  function(){ updateBar_(); flushQueue_(); });
 window.addEventListener('offline', function(){ updateBar_(); });
 
@@ -222,17 +249,21 @@ async function fetchAll_(){
 
 const API = {
   async getInitialData(){
+    // Si NO hay internet, ni intentes el servidor: usa la copia local de una vez.
+    if (isOffline_()){
+      const snapOff = loadSnapshot_();
+      if (snapOff){ setOfflineBar_(); return snapOff; }
+    }
     try{
       const data = await fetchAll_();     // hay internet
       saveSnapshotData_(data);            // guarda copia local
       updateBar_();
-      // si quedaron cambios sin subir de una sesión anterior, súbelos
       setTimeout(function(){ flushQueue_(); }, 1200);
       return data;
     }catch(e){
       const snap = loadSnapshot_();
-      if (snap){ updateBar_(); return snap; }   // sin internet: usa la copia local
-      throw e;                                   // sin copia y sin internet
+      if (snap){ setOfflineBar_(); return snap; }   // falló la red: usa la copia local
+      throw e;                                       // no hay copia y no hay red
     }
   },
 
@@ -480,6 +511,8 @@ function summary_(list){
 }
 
 /* ═══════════════ gs(): el puente que tu app.js usa ═══════════════ */
+window.isOffline = isOffline_;
+
 window.gs = function(fn){
   const args = [].slice.call(arguments, 1);
   if (typeof API[fn] !== 'function') return Promise.reject(new Error('Función no disponible: '+fn));
@@ -534,7 +567,7 @@ function injectLogin_(){
   ov.innerHTML = `
     <div id="login-card">
       <h1>Control Finanzas MS</h1>
-      <p class="sub">Inicia sesión para ver tus finanzas.</p>
+      <p class="sub">Escribe tu correo y contraseña. Si es tu primera vez, pulsa "Crear cuenta nueva".</p>
       <label>Correo electrónico</label>
       <input type="email" id="login-email" placeholder="tucorreo@ejemplo.com" autocomplete="email">
       <label>Contraseña</label>
@@ -556,11 +589,19 @@ function injectLogin_(){
     else startApp_();
   };
   document.getElementById('login-up').onclick = async ()=>{
+    if (!email() || !pass()){
+      msg().textContent = 'Escribe tu correo y contraseña arriba, luego pulsa "Crear cuenta nueva".';
+      return;
+    }
+    if (pass().length < 6){
+      msg().textContent = 'La contraseña debe tener al menos 6 caracteres.';
+      return;
+    }
     msg().textContent='Creando cuenta…';
     const { data, error } = await sb.auth.signUp({ email:email(), password:pass() });
     if (error) { msg().textContent = traducirError_(error.message); return; }
     if (data.session) startApp_();
-    else msg().textContent = 'Cuenta creada. Si pide confirmar correo, revisa tu bandeja y luego entra.';
+    else msg().textContent = 'Cuenta creada. Ahora pulsa "Entrar" con ese mismo correo y contraseña.';
   };
 }
 function traducirError_(m){
@@ -572,8 +613,14 @@ function traducirError_(m){
 function showLogin_(){ document.getElementById('login-ov').classList.add('show'); }
 
 async function startApp_(){
-  const { data:{ user } } = await sb.auth.getUser();
-  CURRENT_USER_ID = user ? user.id : null;
+  // Obtener el usuario SIN llamar a internet (lee la sesión guardada en el teléfono)
+  let uid = null;
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    uid = (session && session.user) ? session.user.id : null;
+  }catch(e){ uid = null; }
+  CURRENT_USER_ID = uid;
+
   const ov = document.getElementById('login-ov'); if (ov) ov.classList.remove('show');
   addLogoutButton_();
   if (typeof window.init === 'function') window.init();
@@ -615,16 +662,101 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   let session = null;
   try{
     const conTiempoLimite = Promise.race([
-      sb.auth.getSession().then(r => r.data.session),
-      new Promise((resolve)=> setTimeout(()=> resolve('TIMEOUT'), 4000))
+      sb.auth.getSession().then(function(r){ return r.data.session; }),
+      new Promise(function(resolve){ setTimeout(function(){ resolve('TIMEOUT'); }, 4000); })
     ]);
     const r = await conTiempoLimite;
     if (r !== 'TIMEOUT') session = r;
-    else session = haySesionLocal ? 'LOCAL' : null;   // sin respuesta pero hay sesión local
+    else session = haySesionLocal ? 'LOCAL' : null;
   }catch(e){
-    session = haySesionLocal ? 'LOCAL' : null;          // sin internet: usa la sesión local si existe
+    session = haySesionLocal ? 'LOCAL' : null;
   }
 
   if (session) startApp_();
   else showLogin_();
 });
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EXTRAS: refrescar tirando hacia abajo + actualizar solo al reconectar
+   (Pegar este bloque AL FINAL de db.js)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Recargar los datos del servidor y repintar la pantalla */
+async function refreshData_(){
+  if (isOffline_()){ if(window.toast) toast('Sin conexión','info'); return; }
+  // si hay cambios sin subir, súbelos (flushQueue_ ya recarga y repinta al terminar)
+  if (loadQueue_().length){ await flushQueue_(); return; }
+  try{
+    const data = await fetchAll_();
+    saveSnapshotData_(data);
+    if (window.S){
+      window.S.transactions = data.transactions;
+      window.S.categories   = data.categories;
+      window.S.settings     = data.settings;
+      window.S.pendings     = data.pendings;
+      window.S.budgets      = data.budgets;
+      window.S.recurring    = data.recurring;
+      window.S.goals        = data.goals;
+      window.S.palettes     = data.palettes;
+      if (typeof window.renderAll === 'function') window.renderAll();
+    }
+    if (window.toast) toast('Actualizado','ok');
+  }catch(e){ if (window.toast) toast('No se pudo actualizar','err'); }
+}
+window.refreshData = refreshData_;
+
+/* Gesto: tirar hacia abajo (estando arriba del todo) para refrescar */
+(function(){
+  let startY=0, pulling=false, ind=null;
+  function scroller(){ return document.scrollingElement || document.documentElement; }
+  function ensureInd(){
+    if(ind) return;
+    const css=document.createElement('style');
+    css.textContent='#ptr-ind{position:fixed;left:50%;top:0;transform:translate(-50%,-44px);z-index:650;'
+      +'background:#1D4ED8;color:#fff;font:600 12px \'Inter\',system-ui,sans-serif;padding:8px 16px;'
+      +'border-radius:0 0 14px 14px;transition:transform .15s ease;box-shadow:0 4px 14px rgba(0,0,0,.35)}'
+      +'#ptr-ind.show{transform:translate(-50%,0)}';
+    document.head.appendChild(css);
+    ind=document.createElement('div'); ind.id='ptr-ind';
+    ind.textContent='↓ Suelta para actualizar';
+    document.body.appendChild(ind);
+  }
+  function modalAbierto(){ return !!document.querySelector('.backdrop.show, [id$="Backdrop"].show'); }
+  function alTope(){
+    const se = scroller();
+    const cont = document.querySelector('.app-main, main, #app') || document.body;
+    const topDoc = se ? se.scrollTop : 0;
+    const topCont = cont ? cont.scrollTop : 0;
+    return topDoc <= 2 && topCont <= 2;
+  }
+  window.addEventListener('touchstart', function(e){
+    pulling = (alTope() && e.touches.length===1 && !modalAbierto());
+    if(pulling) startY=e.touches[0].clientY;
+  }, {passive:true});
+  window.addEventListener('touchmove', function(e){
+    if(!pulling) return;
+    const dy=e.touches[0].clientY-startY;
+    if(dy>110 && alTope()){ ensureInd(); ind.classList.add('show'); }
+    else if(ind){ ind.classList.remove('show'); }
+  }, {passive:true});
+  window.addEventListener('touchend', function(){
+    if(pulling && ind && ind.classList.contains('show')){
+      ind.classList.remove('show');
+      if(window.refreshData) window.refreshData();
+    }
+    pulling=false;
+  }, {passive:true});
+})();
+
+/* Actualizar solo cuando vuelve el internet mientras usas la app */
+(function(){
+  try{
+    const N = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Network;
+    if (N && N.addListener){
+      N.addListener('networkStatusChange', function(st){
+        updateBar_();
+        if (st && st.connected){ setTimeout(function(){ flushQueue_(); }, 600); }
+      });
+    }
+  }catch(e){}
+})();
