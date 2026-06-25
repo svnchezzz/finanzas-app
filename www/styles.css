@@ -536,3 +536,31 @@ body.no-scroll{ overflow:hidden; }
   overflow:hidden; padding:0;
 }
 .brand-mark img{ width:100%; height:100%; object-fit:cover; display:block; }
+
+/* Desactivar el "pull-to-refresh" nativo: lo controlamos a mano */
+html, body{ overscroll-behavior-y: contain; }
+
+/* Indicador de recarga (solo visible al tirar desde arriba del todo) */
+#ptr{
+  position:fixed; top:0; left:0; right:0;
+  display:flex; align-items:center; justify-content:center;
+  height:0; opacity:0; pointer-events:none;
+  z-index:60; color:var(--primary2);
+  transition:opacity .18s var(--ease);
+}
+#ptr.show{ opacity:1; height:54px; }
+.ptr-spin{
+  width:26px; height:26px; border-radius:50%;
+  border:3px solid var(--line2);
+  border-top-color:var(--primary2);
+  transform:rotate(0deg);
+}
+#ptr.ready .ptr-spin{ border-top-color:var(--savings); }
+#ptr.loading .ptr-spin{ animation:ptrSpin .7s linear infinite; }
+@keyframes ptrSpin{ to{ transform:rotate(360deg); } }
+
+/* Más aire en los textos al elegir "Ahorro" */
+#sourceRow{ margin-top:18px; }
+#sourceRow .hint{ margin-top:10px; line-height:1.5; }
+#goalRow{ margin-top:18px; }
+#goalRow .field-label{ margin-top:0; }

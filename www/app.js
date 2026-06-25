@@ -1295,4 +1295,46 @@ function toast(msg,kind){
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 
 window.S = S;
+
+/* ── Pull-to-refresh controlado ──────────────────────────────
+   Solo recarga cuando la página está totalmente arriba (scroll = 0)
+   y se hace un tirón claro hacia abajo (no con un toque suave).   */
+(function(){
+  var THRESHOLD = 95;                  // px que hay que tirar para recargar
+  var ind = document.getElementById('ptr');
+  var startY = 0, dist = 0, active = false;
+
+  function scrollTop(){ return window.scrollY || document.documentElement.scrollTop || 0; }
+  function atTop(){ return scrollTop() <= 0; }
+  function reset(){ active = false; dist = 0; if(ind){ ind.style.transform=''; ind.className=''; } }
+
+  window.addEventListener('touchstart', function(e){
+    // Ignorar si hay un modal/hoja abierto o no estamos arriba del todo
+    if(e.touches.length !== 1 || document.body.classList.contains('no-scroll') || !atTop()){
+      active = false; return;
+    }
+    active = true; startY = e.touches[0].clientY; dist = 0;
+  }, {passive:true});
+
+  window.addEventListener('touchmove', function(e){
+    if(!active) return;
+    if(!atTop()){ reset(); return; }            // se soltó del borde: cancelar
+    dist = e.touches[0].clientY - startY;
+    if(dist <= 0){ if(ind) ind.className=''; return; }
+    if(ind){
+      ind.classList.add('show');
+      ind.classList.toggle('ready', dist >= THRESHOLD);
+      ind.style.transform = 'translateY(' + Math.min(dist * 0.45, 64) + 'px)';
+    }
+  }, {passive:true});
+
+  window.addEventListener('touchend', function(){
+    if(active && dist >= THRESHOLD){
+      if(ind){ ind.classList.add('loading'); }
+      location.reload();
+    } else {
+      reset();
+    }
+  }, {passive:true});
+})();
 window.renderAll = renderAll;
