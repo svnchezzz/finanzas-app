@@ -14,9 +14,24 @@
  * ───────────────────────────────────────────────────────────────────────────────────
  */
 const SUPABASE_URL = 'https://jjluniqevodygaojmhqn.supabase.co';
-const SUPABASE_KEY = 'sb_publishable__VD9Q4rWFEt7fhIj2hw9SA_9n1hv02m'; 
+const SUPABASE_KEY = 'sb_publishable__VD9Q4rWFEt7fhIj2hw9SA_9n1hv02m';
 
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// Cuánto esperar una petición antes de darla por caída (corta TODAS las peticiones,
+// incluidas las que no pasan por netCall_). Clave para no quedarse colgado 20s+.
+const NET_TIMEOUT_MS = 3000;
+// fetch con corte por tiempo: si el servidor no responde a tiempo, se aborta.
+// Datos: corte corto (NET_TIMEOUT_MS) para detectar "sin internet" rápido.
+// Auth (login/registro): más holgado, para no cortar la sesión en redes lentas.
+function timeoutFetch_(input, init){
+  const url = (typeof input==='string') ? input : (input && input.url) || '';
+  const ms = /\/auth\/v1\//.test(url) ? 12000 : NET_TIMEOUT_MS;
+  const ctrl = new AbortController();
+  const t = setTimeout(function(){ try{ ctrl.abort(); }catch(e){} }, ms);
+  const opts = Object.assign({}, init || {}, { signal: ctrl.signal });
+  return fetch(input, opts).finally(function(){ clearTimeout(t); });
+}
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { global: { fetch: timeoutFetch_ } });
 
 const PALETTE_BY_TYPE = {
   Income:  ['#10B981','#059669','#047857','#065F46','#14B8A6','#0891B2','#06B6D4','#0ea5e9'],
@@ -66,11 +81,46 @@ function uuid_(){
     const r=Math.random()*16|0, v=c==='x'?r:(r&0x3|0x8); return v.toString(16);
   });
 }
-function isOffline_(){ return (typeof navigator!=='undefined' && navigator.onLine===false); }
+let _netDown=false;          // true = el servidor no responde (sin internet REAL, aunque el WiFi esté encendido)
+
+// "Sin conexión" = sin interfaz de red  O  el servidor no responde (internet real caído)
+function isOffline_(){ return (typeof navigator!=='undefined' && navigator.onLine===false) || _netDown; }
 function isNetErr_(e){
-  if (isOffline_()) return true;
+  if (typeof navigator!=='undefined' && navigator.onLine===false) return true;
   const m = ((e && (e.message||e.msg)) || '') + '';
-  return /fetch|network|Failed to fetch|NetworkError|timeout|ECONN|ENOTFOUND/i.test(m);
+  return /fetch|network|Failed to fetch|NetworkError|timeout|abort|ECONN|ENOTFOUND/i.test(m);
+}
+// Corre una promesa de red con límite de tiempo; si tarda demasiado, la da por caída.
+function withTimeout_(p, ms){
+  return new Promise(function(resolve, reject){
+    const t=setTimeout(function(){ reject(new Error('network timeout')); }, ms||NET_TIMEOUT_MS);
+    Promise.resolve(p).then(function(v){ clearTimeout(t); resolve(v); },
+                            function(e){ clearTimeout(t); reject(e); });
+  });
+}
+// Envuelve una petición real: marca internet ok/caído según el resultado.
+async function netCall_(p, ms){
+  try{ const v=await withTimeout_(p, ms); markNet_(true); return v; }
+  catch(e){ if (isNetErr_(e)) markNet_(false); throw e; }
+}
+// Cambia el estado de internet real y reacciona (avisa / reintenta subir lo pendiente).
+function markNet_(ok){
+  const was=_netDown;
+  _netDown=!ok;
+  if (ok && was){            // volvió el internet real
+    _offlineNotified=false;
+    if (typeof updateBar_==='function') updateBar_();
+    if (typeof flushQueue_==='function') flushQueue_();
+  } else if (!ok && !was){   // se acaba de caer el internet real
+    if (typeof updateBar_==='function') updateBar_();
+  }
+}
+// Sondea el servidor aunque creamos estar caídos (para detectar el regreso del internet).
+async function recheckNet_(){
+  if (typeof sb==='undefined' || !sb) return;
+  if (typeof navigator!=='undefined' && navigator.onLine===false){ markNet_(false); return; }
+  try{ await withTimeout_(sb.from('settings').select('currency_symbol').limit(1), 6000); markNet_(true); }
+  catch(e){ markNet_(isNetErr_(e) ? false : true); }  // si el server respondió (otro error), hay internet
 }
 
 /* Bandeja de salida (cola de cambios pendientes de subir) */
@@ -123,17 +173,17 @@ function buildTxPayload_(cid, tx){
     color:tx.color||'#64748B', source:normSource_(tx.source), note:tx.note||'' };
 }
 async function txUpsert_(cid, tx){
-  const { data, error } = await sb.from('transactions')
-    .upsert(buildTxPayload_(cid, tx), { onConflict:'client_id' }).select().single();
+  const { data, error } = await netCall_(sb.from('transactions')
+    .upsert(buildTxPayload_(cid, tx), { onConflict:'client_id' }).select().single());
   if (error) throw error; return data;
 }
 async function applyOp_(item){
   if (item.op==='add'){ await txUpsert_(item.client_id, item.payload); }
   else if (item.op==='update'){
-    const { error } = await sb.from('transactions').update(buildTxPayload_(item.client_id, item.payload)).eq('client_id', item.client_id);
+    const { error } = await netCall_(sb.from('transactions').update(buildTxPayload_(item.client_id, item.payload)).eq('client_id', item.client_id));
     if (error) throw error;
   } else if (item.op==='delete'){
-    const { error } = await sb.from('transactions').delete().eq('client_id', item.client_id);
+    const { error } = await netCall_(sb.from('transactions').delete().eq('client_id', item.client_id));
     if (error) throw error;
   }
 }
@@ -183,47 +233,90 @@ async function flushQueue_(){
 function ensureBar_(){
   if(document.getElementById('offline-bar')) return;
   const css=document.createElement('style');
-  css.textContent='#offline-bar{position:fixed;left:0;right:0;bottom:0;z-index:600;display:none;'
+  css.textContent='#offline-bar{position:fixed;left:0;right:0;bottom:0;z-index:80;display:none;'
     +'text-align:center;padding:9px 14px;font:600 13px \'Inter\',system-ui,sans-serif;color:#fff;'
-    +'box-shadow:0 -4px 14px rgba(0,0,0,.35);padding-bottom:calc(9px + env(safe-area-inset-bottom,0px))}'
-    +'#offline-bar.show{display:block}';
+    +'box-shadow:0 -4px 14px rgba(0,0,0,.35);padding-bottom:calc(9px + env(safe-area-inset-bottom,0px));'
+    +'transition:transform .34s var(--ease);will-change:transform}'
+    +'#offline-bar.show{display:block}'
+    +'@media(max-width:680px){'
+    +'#offline-bar{transform:translateY(calc(-64px - env(safe-area-inset-bottom,0px)));padding-bottom:9px}'
+    +'body.bars-hidden #offline-bar{transform:translateY(0);padding-bottom:calc(9px + env(safe-area-inset-bottom,0px))}'
+    +'}';
   document.head.appendChild(css);
   const bar=document.createElement('div'); bar.id='offline-bar'; document.body.appendChild(bar);
+}
+let _barHideT=null;          // temporizador para ocultar el aviso
+let _offlineNotified=false;  // evita repetir el aviso durante el mismo corte
+const OFFLINE_MS=4000;       // cuánto se ve el aviso de sin conexión
+
+function offlineText_(n){
+  return n>0
+    ? ('Sin conexión — '+n+' cambio'+(n===1?'':'s')+' se subirá'+(n===1?'':'n')+' al reconectar')
+    : 'Sin conexión — mostrando tus últimos datos guardados';
+}
+/* Muestra el aviso de sin conexión unos segundos y luego lo oculta solo */
+function flashOffline_(){
+  if(_offlineNotified) return;          // ya se avisó en este corte de internet
+  _offlineNotified=true;
+  ensureBar_();
+  const bar=document.getElementById('offline-bar'); if(!bar) return;
+  bar.style.background='#B45309';
+  bar.textContent=offlineText_(loadQueue_().length);
+  bar.classList.add('show');
+  if(_barHideT)clearTimeout(_barHideT);
+  _barHideT=setTimeout(function(){ bar.classList.remove('show'); }, OFFLINE_MS);
 }
 function updateBar_(){
   ensureBar_();
   const bar=document.getElementById('offline-bar'); if(!bar) return;
   const n=loadQueue_().length;
   if (isOffline_()){
-    bar.style.background='#B45309';
-    bar.textContent = n>0
-      ? ('Sin conexión — '+n+' cambio'+(n===1?'':'s')+' se subirá'+(n===1?'':'n')+' al reconectar')
-      : 'Sin conexión — mostrando tus últimos datos guardados';
-    bar.classList.add('show');
-  } else if (n>0){
-    bar.style.background='#1D4ED8';
-    bar.textContent='Subiendo '+n+' cambio'+(n===1?'':'s')+'…';
-    bar.classList.add('show');
+    flashOffline_();
   } else {
-    bar.classList.remove('show');
+    _offlineNotified=false;             // de vuelta en línea: rearmar el aviso
+    if(_barHideT){clearTimeout(_barHideT);_barHideT=null;}
+    if (n>0){
+      bar.style.background='#1D4ED8';
+      bar.textContent='Subiendo '+n+' cambio'+(n===1?'':'s')+'…';
+      bar.classList.add('show');
+    } else {
+      bar.classList.remove('show');
+    }
   }
 }
-function setOfflineBar_(){
-  ensureBar_();
-  const bar=document.getElementById('offline-bar'); if(!bar) return;
-  const n=loadQueue_().length;
-  bar.style.background='#B45309';
-  bar.textContent = n>0
-    ? ('Sin conexión — '+n+' cambio'+(n===1?'':'s')+' se subirá'+(n===1?'':'n')+' al reconectar')
-    : 'Sin conexión — mostrando tus últimos datos guardados';
-  bar.classList.add('show');
+function setOfflineBar_(){ flashOffline_(); }
+window.addEventListener('online',  function(){ _netDown=false; _offlineNotified=false; updateBar_(); flushQueue_(); });
+window.addEventListener('offline', function(){ markNet_(false); });
+
+// Plugin nativo de red (Capacitor): detección instantánea y fiable de "sin red".
+// Cuando el teléfono pierde la red, pasamos a offline de inmediato (sin esperar timeouts).
+function initNetPlugin_(){
+  try{
+    var N = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Network;
+    if(!N) return false;
+    N.getStatus().then(function(s){ if(s && s.connected===false) markNet_(false); }).catch(function(){});
+    N.addListener('networkStatusChange', function(s){
+      if(s && s.connected===false){ markNet_(false); }   // sin red: offline al instante
+      else { recheckNet_(); }                             // volvió la red: verifica el servidor y sube pendientes
+    });
+    return true;
+  }catch(e){ return false; }
 }
-window.addEventListener('online',  function(){ updateBar_(); flushQueue_(); });
-window.addEventListener('offline', function(){ updateBar_(); });
+// El puente de Capacitor puede no estar listo al cargar el script: reintenta un par de veces.
+if(!initNetPlugin_()){
+  var _netTries=0;
+  var _netInit=setInterval(function(){ _netTries++; if(initNetPlugin_()||_netTries>20) clearInterval(_netInit); }, 300);
+}
+// Sondeo periódico: el evento 'online' NO se dispara cuando hay WiFi pero sin internet real,
+// así que revisamos nosotros si el servidor responde y, al volver, subimos lo pendiente.
+setInterval(function(){
+  if (_netDown){ recheckNet_(); }                 // caído: ¿ya volvió el internet?
+  else if (loadQueue_().length){ flushQueue_(); }  // en línea con pendientes: súbelos
+}, 15000);
 
 /* ═══════════════ Funciones de datos ═══════════════ */
 async function fetchAll_(){
-  const [tx, cats, set, pend, bud, rec, goals] = await Promise.all([
+  const [tx, cats, set, pend, bud, rec, goals] = await netCall_(Promise.all([
     sb.from('transactions').select('*'),
     sb.from('categories').select('*'),
     sb.from('settings').select('*').maybeSingle(),
@@ -231,7 +324,7 @@ async function fetchAll_(){
     sb.from('budgets').select('*'),
     sb.from('recurring').select('*'),
     sb.from('goals').select('*')
-  ]);
+  ]));
   for (const r of [tx,cats,set,pend,bud,rec,goals]) if (r.error) throw r.error;
   const grouped = { Income:[], Expense:[], Savings:[] };
   (cats.data||[]).forEach(function(c){ if(grouped[c.type]) grouped[c.type].push({name:c.name, color:c.color}); });
@@ -283,7 +376,7 @@ const API = {
   async updateTransaction(id, tx){
     if (isOffline_()){ enqueue_({op:'update', client_id:id, payload:tx}); snapSoon_(); return true; }
     try{
-      const { error } = await sb.from('transactions').update(buildTxPayload_(id, tx)).eq('client_id', id);
+      const { error } = await netCall_(sb.from('transactions').update(buildTxPayload_(id, tx)).eq('client_id', id));
       if (error) throw error; snapSoon_(); return true;
     }catch(e){
       if (isNetErr_(e)){ enqueue_({op:'update', client_id:id, payload:tx}); snapSoon_(); return true; }
@@ -293,7 +386,7 @@ const API = {
   async deleteTransaction(id){
     if (isOffline_()){ enqueueDelete_(id); snapSoon_(); return true; }
     try{
-      const { error } = await sb.from('transactions').delete().eq('client_id', id);
+      const { error } = await netCall_(sb.from('transactions').delete().eq('client_id', id));
       if (error) throw error; snapSoon_(); return true;
     }catch(e){
       if (isNetErr_(e)){ enqueueDelete_(id); snapSoon_(); return true; }
@@ -431,11 +524,24 @@ const API = {
       [],
       ['Ingresos', sum.ingresos], ['Gastos', sum.gastos], ['Ahorro', sum.ahorro], ['Disponible', sum.disponible],
       [],
-      ['Fecha', 'Tipo', 'Categoría', 'Monto', 'Origen', 'Nota']
+      ['Fecha', 'Tipo', 'Categoría', 'Monto', 'Nota']
     ];
-    const cuerpo = list.map(function(t){ return [ fmtFechaCorta_(t.date), TIPO_ES[t.type]||t.type, t.category, t.amount, ORIGEN_ES[t.source]||'', t.note||'' ]; });
+    const cuerpo = list.map(function(t){ return [ fmtFechaCorta_(t.date), TIPO_ES[t.type]||t.type, t.category, t.amount, t.note||'' ]; });
     const ws = XLSX.utils.aoa_to_sheet(enc.concat(cuerpo));
-    ws['!cols'] = [{wch:12},{wch:10},{wch:24},{wch:14},{wch:14},{wch:34}];
+    ws['!cols'] = [{wch:12},{wch:10},{wch:24},{wch:14},{wch:34}];
+    // Colores: ingresos=verde, gastos=rojo, ahorro=azul, disponible=morado
+    const COL = { verde:'16A34A', rojo:'DC2626', azul:'2563EB', morado:'9333EA' };
+    function cellStyle_(addr, style){ if(ws[addr]) ws[addr].s = style; }
+    [['4',COL.verde],['5',COL.rojo],['6',COL.azul],['7',COL.morado]].forEach(function(p){
+      ['A','B'].forEach(function(c){ cellStyle_(c+p[0], { font:{ bold:true, color:{ rgb:p[1] } } }); });
+    });
+    ['A','B','C','D','E'].forEach(function(c){ cellStyle_(c+'9', { font:{ bold:true } }); }); // encabezados
+    list.forEach(function(t,i){
+      const r = 10 + i;
+      const rgb = t.type==='Income'?COL.verde:(t.type==='Expense'?COL.rojo:COL.azul);
+      cellStyle_('B'+r, { font:{ color:{ rgb:rgb } } });             // Tipo
+      cellStyle_('D'+r, { font:{ bold:true, color:{ rgb:rgb } } });  // Monto
+    });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
 
@@ -455,19 +561,30 @@ const API = {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit:'pt', format:'a4' });
     const list = exportFilter_(scope), sum = summary_(list);
-    doc.setFontSize(16); doc.setTextColor(40,40,40); doc.text('Control Finanzas MS', 40, 42);
-    doc.setFontSize(10); doc.setTextColor(120,120,120); doc.text('Reporte de movimientos · '+scopeLabel_(scope)+' · '+nowStamp_(), 40, 60);
-    doc.setFontSize(11); doc.setTextColor(20,20,20);
-    doc.text('Ingresos: '+money_(sum.ingresos), 40, 86);
-    doc.text('Gastos: '+money_(sum.gastos), 200, 86);
-    doc.text('Ahorro: '+money_(sum.ahorro), 340, 86);
-    doc.text('Disponible: '+money_(sum.disponible), 460, 86);
+    let titleX = 40;
+    const logo = await loadImageDataUrl_('logo.png');
+    if (logo){ try{ doc.addImage(logo, 'PNG', 40, 26, 24, 24); titleX = 72; }catch(e){} }
+    doc.setFontSize(16); doc.setTextColor(40,40,40); doc.text('Control Finanzas MS', titleX, 44);
+    doc.setFontSize(10); doc.setTextColor(120,120,120); doc.text('Reporte de movimientos · '+scopeLabel_(scope)+' · '+nowStamp_(), 40, 64);
+    doc.setFontSize(11);
+    // Colores: ingresos=verde, gastos=rojo, ahorro=azul, disponible=morado
+    doc.setTextColor(22,163,74);  doc.text('Ingresos: '+money_(sum.ingresos), 40, 86);
+    doc.setTextColor(220,38,38);  doc.text('Gastos: '+money_(sum.gastos), 200, 86);
+    doc.setTextColor(37,99,235);  doc.text('Ahorro: '+money_(sum.ahorro), 340, 86);
+    doc.setTextColor(147,51,234); doc.text('Disponible: '+money_(sum.disponible), 460, 86);
+    doc.setTextColor(20,20,20);
     doc.autoTable({
       startY: 100,
-      head: [['Fecha','Tipo','Categoría','Monto','Origen','Nota']],
-      body: list.map(function(t){ return [ fmtFechaCorta_(t.date), TIPO_ES[t.type]||t.type, t.category, money_(t.amount), ORIGEN_ES[t.source]||'', t.note||'' ]; }),
+      head: [['Fecha','Tipo','Categoría','Monto','Nota']],
+      body: list.map(function(t){ return [ fmtFechaCorta_(t.date), TIPO_ES[t.type]||t.type, t.category, money_(t.amount), t.note||'' ]; }),
       styles:{ fontSize:8, cellPadding:4 }, headStyles:{ fillColor:[15,23,42], textColor:255 },
-      alternateRowStyles:{ fillColor:[248,250,252] }, columnStyles:{ 3:{ halign:'right' } }
+      alternateRowStyles:{ fillColor:[248,250,252] }, columnStyles:{ 3:{ halign:'right' } },
+      didParseCell:function(data){
+        if(data.section!=='body') return;
+        const t=list[data.row.index]; if(!t) return;
+        const c=t.type==='Income'?[22,163,74]:(t.type==='Expense'?[220,38,38]:[37,99,235]);
+        if(data.column.index===1 || data.column.index===3){ data.cell.styles.textColor=c; data.cell.styles.fontStyle='bold'; }
+      }
     });
     const pl = exportPendFilter_(scope);
     if (pl.length){
@@ -485,6 +602,20 @@ const API = {
 };
 
 /* ═══════════════ Helpers de exportación ═══════════════ */
+/* Carga una imagen del propio paquete (p.ej. logo.png) como dataURL para incrustarla en el PDF */
+function loadImageDataUrl_(url){
+  return new Promise(function(resolve){
+    try{
+      fetch(url).then(function(r){ return r.ok?r.blob():null; }).then(function(b){
+        if(!b){ resolve(null); return; }
+        const fr=new FileReader();
+        fr.onload=function(){ resolve(fr.result); };
+        fr.onerror=function(){ resolve(null); };
+        fr.readAsDataURL(b);
+      }).catch(function(){ resolve(null); });
+    }catch(e){ resolve(null); }
+  });
+}
 function pad2_(n){ return ('0'+n).slice(-2); }
 function fileStamp_(){ const d=new Date(); return d.getFullYear()+pad2_(d.getMonth()+1)+pad2_(d.getDate())+'-'+pad2_(d.getHours())+pad2_(d.getMinutes()); }
 function nowStamp_(){ const d=new Date(); return pad2_(d.getDate())+'/'+pad2_(d.getMonth()+1)+'/'+d.getFullYear()+' '+pad2_(d.getHours())+':'+pad2_(d.getMinutes()); }
@@ -520,16 +651,36 @@ window.gs = function(fn){
 };
 
 /* ═══════════════ Descarga del archivo exportado ═══════════════ */
-window.downloadB64 = async function(res){
+function getDownloadsPlugin_(){
   try{
-    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()
-        && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem && window.Capacitor.Plugins.Share){
-      const { Filesystem, Share } = window.Capacitor.Plugins;
-      const w = await Filesystem.writeFile({ path: res.filename, data: res.b64, directory: 'CACHE' });
-      await Share.share({ title: res.filename, url: w.uri });
-      return;
-    }
-  }catch(e){ /* cae al método de navegador */ }
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Downloads) return window.Capacitor.Plugins.Downloads;
+    if (window.Capacitor && typeof window.Capacitor.registerPlugin==='function') return window.Capacitor.registerPlugin('Downloads');
+  }catch(e){}
+  return null;
+}
+window.downloadB64 = async function(res){
+  if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()){
+    // 1) Guardar directo en la carpeta Descargas del celular
+    let savedToDownloads = false;
+    try{
+      const D = getDownloadsPlugin_();
+      if (D && D.saveBase64){
+        await D.saveBase64({ filename:res.filename, data:res.b64, mimeType:res.mimeType });
+        savedToDownloads = true;
+        if(window.toast) toast('Guardado en Descargas: '+res.filename,'ok');
+      }
+    }catch(e){ /* si falla, queda el compartir como respaldo */ }
+    // 2) Abrir el menú Compartir de Android automáticamente
+    try{
+      if (window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem && window.Capacitor.Plugins.Share){
+        const { Filesystem, Share } = window.Capacitor.Plugins;
+        const w = await Filesystem.writeFile({ path: res.filename, data: res.b64, directory: 'CACHE' });
+        await Share.share({ title: res.filename, url: w.uri });
+        return;
+      }
+    }catch(e){ /* el usuario pudo cancelar el compartir; si ya se guardó, está bien */ }
+    if (savedToDownloads) return;   // se guardó en Descargas aunque no se pudiera compartir
+  }
   try{
     const bin=atob(res.b64), len=bin.length, bytes=new Uint8Array(len);
     for(let i=0;i<len;i++)bytes[i]=bin.charCodeAt(i);

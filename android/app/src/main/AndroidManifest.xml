@@ -38,4 +38,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Vibración táctil (haptics) -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Guardar en Descargas en Android 9 e inferiores (en 10+ se usa MediaStore sin permiso) -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 </manifest>
