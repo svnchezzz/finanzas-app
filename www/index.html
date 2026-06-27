@@ -67,9 +67,9 @@
       </div>
 
       <div class="segmented" id="periodSeg">
-        <button data-period="day">Día</button>
+        <button data-period="day" class="active">Día</button>
         <button data-period="week">Semana</button>
-        <button data-period="month" class="active">Mes</button>
+        <button data-period="month">Mes</button>
         <button data-period="year">Año</button>
       </div>
     </div>
@@ -114,7 +114,7 @@
           </div>
           <div class="kpi kpi-balance">
             <div class="kpi-top"><span class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg></span><span class="kpi-label">Disponible</span></div>
-            <div class="kpi-value" data-kpi="balance">—</div><div class="kpi-foot" data-kpi-sub="balance">Saldo total de toda tu plata (histórico)</div>
+            <div class="kpi-value" data-kpi="balance">—</div><div class="kpi-foot" data-kpi-sub="balance">Ingresos − gastos − ahorro apartado</div>
           </div>
         </div>
 
@@ -269,8 +269,8 @@
         <div id="sourceRow" class="source-row hidden">
           <label class="field-label">Origen de fondos</label>
           <div class="segmented inline" id="sourceSeg">
-            <button data-source="Salary" class="active">Del salario</button>
-            <button data-source="Other">Otra fuente</button>
+            <button data-source="Salary" class="active">Disponible actual</button>
+            <button data-source="Other">Nuevo ingreso</button>
           </div>
           <p class="hint" id="sourceHint">Se descuenta de tu saldo de salario.</p>
         </div>
@@ -293,7 +293,7 @@
 
         <div id="txColorRow" class="hidden">
           <label class="field-label">Color de la nueva etiqueta</label>
-          <div class="color-pick"><div class="swatches" id="swatchRow"></div><input type="color" class="swatch-custom" id="swatchRowCustom" title="Elegir cualquier color"></div>
+          <div class="color-pick"><div class="swatches" id="swatchRow"></div><button type="button" class="swatch-custom" id="swatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
         </div>
 
         <div class="two-col">
@@ -373,7 +373,7 @@
         </div>
 
         <label class="field-label">Color</label>
-        <div class="color-pick"><div class="swatches" id="pendSwatchRow"></div><input type="color" class="swatch-custom" id="pendSwatchRowCustom" title="Elegir cualquier color"></div>
+        <div class="color-pick"><div class="swatches" id="pendSwatchRow"></div><button type="button" class="swatch-custom" id="pendSwatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
 
         <label class="field-label">Nota (opcional)</label>
         <input type="text" id="pendNote" class="full-input" placeholder="ej. factura #123 / cliente X" maxlength="60">
@@ -394,7 +394,7 @@
 
         <label class="field-label">Color</label>
         <p class="hint" id="editCatHint" style="margin-top:0">Selecciona un color.</p>
-        <div class="color-pick"><div class="swatches" id="editCatSwatches"></div><input type="color" class="swatch-custom" id="editCatSwatchesCustom" title="Elegir cualquier color"></div>
+        <div class="color-pick"><div class="swatches" id="editCatSwatches"></div><button type="button" class="swatch-custom" id="editCatSwatchesCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
 
         <div class="cat-preview">
           <span class="cat-preview-dot" id="editCatPreviewDot"></span>
@@ -442,7 +442,7 @@
         </div>
 
         <label class="field-label">Color</label>
-        <div class="color-pick"><div class="swatches" id="recurSwatchRow"></div><input type="color" class="swatch-custom" id="recurSwatchRowCustom" title="Elegir cualquier color"></div>
+        <div class="color-pick"><div class="swatches" id="recurSwatchRow"></div><button type="button" class="swatch-custom" id="recurSwatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
 
         <label class="check-row"><input type="checkbox" id="recurActive" checked> <span>Activo (se generará automáticamente cada mes)</span></label>
       </div>
@@ -468,7 +468,7 @@
         </div>
 
         <label class="field-label">Color</label>
-        <div class="color-pick"><div class="swatches" id="goalSwatchRow"></div><input type="color" class="swatch-custom" id="goalSwatchRowCustom" title="Elegir cualquier color"></div>
+        <div class="color-pick"><div class="swatches" id="goalSwatchRow"></div><button type="button" class="swatch-custom" id="goalSwatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
 
         <label class="field-label">Nota (opcional)</label>
         <input type="text" id="goalNote" class="full-input" placeholder="ej. para diciembre" maxlength="60">

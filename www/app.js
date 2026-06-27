@@ -23,8 +23,8 @@ const S={
   budgets:[], recurring:[], goals:[],
   settings:{currencySymbol:'$',locale:'es-CO',decimals:0,palette:[]},
   palettes:PALETTES_FALLBACK,
-  period:'month', ref:new Date(), view:'dashboard', histGrain:'day', pendFilter:'all',
-  charts:{}, _kpiPrev:{income:0,expense:0,savings:0,balance:0},
+  period:'day', ref:new Date(), view:'dashboard', histGrain:'day', pendFilter:'all',
+  charts:{}, _kpiPrev:{income:0,expense:0,savings:0,balance:0}, _donutPrev:{}, _trendMode:null,
   modal:{id:null,type:null,color:null,source:'Salary',category:null}, exportScope:'current',
   pend:{id:null,kind:'Income',category:null,color:null},
   editCat:{type:null,oldName:null,newName:null,color:null},
@@ -70,6 +70,13 @@ function money(n){
   const v=Math.round(n||0);
   const nf=new Intl.NumberFormat(S.settings.locale||'es-CO',{maximumFractionDigits:S.settings.decimals||0});
   return (v<0?'-':'')+S.settings.currencySymbol+' '+nf.format(Math.abs(v));
+}
+/* Versión con el símbolo de moneda más pequeño y atenuado (look fintech).
+   Solo para sitios donde escribimos HTML (KPIs, centro de donas). */
+function moneyHTML(n){
+  const v=Math.round(n||0);
+  const nf=new Intl.NumberFormat(S.settings.locale||'es-CO',{maximumFractionDigits:S.settings.decimals||0});
+  return (v<0?'-':'')+'<span class="cur-sym">'+esc(S.settings.currencySymbol)+'</span>'+nf.format(Math.abs(v));
 }
 function groupDigits(str){const d=String(str).replace(/\D/g,'');if(!d)return '';return new Intl.NumberFormat(S.settings.locale||'es-CO').format(parseInt(d,10));}
 
@@ -187,6 +194,16 @@ function fromSavingsSum(list){return list.filter(isFromSavings).reduce(function(
 function savingsNet(list){return sumType(list,'Savings')-fromSavingsSum(list);}
 /* Disponible global y estático = todo el dinero que tienes (ingresos − gastos, histórico) */
 function globalDisponible(){const all=allMovements();return sumType(all,'Income')-sumType(all,'Expense');}
+/* Ahorro que salió de tu bolsillo (no el de "Otra fuente"), neto de lo gastado desde el ahorro.
+   El ahorro "Otra fuente" no se descuenta del disponible porque no salió de tu salario/ingreso. */
+function pocketSavingsNet(){
+  const all=allMovements();
+  const saved=all.filter(function(t){return t.type==='Savings'&&t.source!=='Other';}).reduce(function(a,t){return a+t.amount;},0);
+  return saved-fromSavingsSum(all);
+}
+/* Disponible real = ingresos − gastos − lo que apartaste en ahorro desde tu bolsillo.
+   Es la plata que realmente te queda libre para gastar o aportar a metas. */
+function disponibleReal(){return globalDisponible()-pocketSavingsNet();}
 
 /* ── Arranque (lo llama db.js después del login) ── */
 // Hace que la WebView ocupe TODA la pantalla (detrás de la barra de estado).
@@ -212,7 +229,16 @@ async function init(){
     S.recurring=data.recurring||[];
     S.goals=data.goals||[];
     S.palettes=data.palettes||PALETTES_FALLBACK;     // paletas por tipo
-    if(window.Chart){Chart.defaults.color='#8a97b8';Chart.defaults.font.family="'Inter',sans-serif";Chart.defaults.font.size=12;}
+    if(window.Chart){Chart.defaults.color='#8a97b8';Chart.defaults.font.family="'Inter',sans-serif";Chart.defaults.font.size=12;
+      // Tooltips con estilo propio del tema (redondeados, con punto de color)
+      var tt=Chart.defaults.plugins.tooltip;
+      tt.backgroundColor='rgba(14,20,36,.97)';tt.titleColor='#eef2ff';tt.bodyColor='#cbd5e1';
+      tt.borderColor='rgba(255,255,255,.12)';tt.borderWidth=1;tt.cornerRadius=12;
+      tt.padding=12;tt.boxPadding=6;tt.usePointStyle=true;tt.caretSize=6;
+      tt.titleFont={family:"'Space Grotesk','Inter',sans-serif",weight:'700',size:13};
+      tt.bodyFont={family:"'Inter',sans-serif",size:12.5};
+      tt.callbacks.labelPointStyle=function(){return {pointStyle:'circle',rotation:0};};
+    }
     wireUI(); renderAll();
   }catch(e){
     document.getElementById('boot').innerHTML='<div class="boot-sub">No se pudo cargar: '+(e&&e.message?e.message:e)+'</div>';
@@ -245,7 +271,7 @@ function wireUI(){
   document.getElementById('addBtn').onclick=openActionMenu;
   document.getElementById('actionBackdrop').addEventListener('click',function(e){
     if(e.target.id==='actionBackdrop')closeActionMenu();
-    const opt=e.target.closest('.action-opt'); if(opt){closeActionMenu();if(opt.dataset.type==='Pending')openPendModal();else openModal(opt.dataset.type);}
+    const opt=e.target.closest('.action-opt'); if(opt){if(window.Haptic&&Haptic.light)Haptic.light();closeActionMenu();if(opt.dataset.type==='Pending')openPendModal();else openModal(opt.dataset.type);}
   });
 
   document.getElementById('modalClose').onclick=closeModal;
@@ -254,7 +280,7 @@ function wireUI(){
   document.getElementById('saveBtn').onclick=saveTx;
   document.getElementById('amountInput').addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);});
   document.getElementById('sourceSeg').addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;setSeg('sourceSeg',b);S.modal.source=b.dataset.source;
-    document.getElementById('sourceHint').textContent=b.dataset.source==='Salary'?'Se descuenta de tu saldo de salario.':'Proviene de otra fuente de fondos.';});
+    document.getElementById('sourceHint').textContent=b.dataset.source==='Salary'?'Se descuenta de tu disponible actual.':'Es un nuevo ingreso (no afecta tu disponible actual).';});
   document.getElementById('newCatSave').onclick=onNewCategoryInModal;
   document.getElementById('chipRow').addEventListener('click',function(e){
     const add=e.target.closest('.add-chip');
@@ -268,7 +294,7 @@ function wireUI(){
       const ac=document.querySelector('#chipRow .add-chip');if(ac){ac.innerHTML='<span class="chip-dot" style="background:currentColor"></span>Nueva';ac.classList.remove('open');}}
   });
   document.getElementById('swatchRow').addEventListener('click',function(e){const s=e.target.closest('.swatch');if(!s)return;S.modal.color=s.dataset.color;markSwatch('swatchRow',S.modal.color);});
-  document.getElementById('swatchRowCustom').addEventListener('input',function(e){S.modal.color=e.target.value;markSwatch('swatchRow',S.modal.color);});
+  wireColorWheel('swatchRowCustom',function(){return S.modal.color;},function(c){S.modal.color=c;markSwatch('swatchRow',c);});
 
   // Export
   document.getElementById('exportBtn').onclick=openExport;
@@ -307,7 +333,7 @@ function wireUI(){
     const chip=e.target.closest('.chip'); if(chip)selectPendChip(chip);
   });
   document.getElementById('pendSwatchRow').addEventListener('click',function(e){const s=e.target.closest('.swatch');if(!s)return;S.pend.color=s.dataset.color;markSwatch('pendSwatchRow',S.pend.color);});
-  document.getElementById('pendSwatchRowCustom').addEventListener('input',function(e){S.pend.color=e.target.value;markSwatch('pendSwatchRow',S.pend.color);});
+  wireColorWheel('pendSwatchRowCustom',function(){return S.pend.color;},function(c){S.pend.color=c;markSwatch('pendSwatchRow',c);});
 
   // Editar categoría (modal)
   document.getElementById('editCatClose').onclick=closeEditCat;
@@ -316,7 +342,7 @@ function wireUI(){
   document.getElementById('editCatSave').onclick=saveEditCat;
   document.getElementById('editCatName').addEventListener('input',function(e){S.editCat.newName=e.target.value;updateEditCatPreview();});
   document.getElementById('editCatSwatches').addEventListener('click',function(e){const s=e.target.closest('.swatch');if(!s)return;S.editCat.color=s.dataset.color;markSwatch('editCatSwatches',S.editCat.color);updateEditCatPreview();});
-  document.getElementById('editCatSwatchesCustom').addEventListener('input',function(e){S.editCat.color=e.target.value;markSwatch('editCatSwatches',S.editCat.color);updateEditCatPreview();});
+  wireColorWheel('editCatSwatchesCustom',function(){return S.editCat.color;},function(c){S.editCat.color=c;markSwatch('editCatSwatches',c);updateEditCatPreview();});
 
   // Búsqueda / filtro en historial
   const hs=document.getElementById('histSearch');
@@ -343,7 +369,7 @@ function wireUI(){
   // Confirmación reutilizable
   document.getElementById('confirmCancel').onclick=closeConfirm;
   document.getElementById('confirmBackdrop').addEventListener('click',function(e){if(e.target.id==='confirmBackdrop')closeConfirm();});
-  document.getElementById('confirmOk').onclick=function(){const cb=S.confirmCb;closeConfirm();if(cb)cb();};
+  document.getElementById('confirmOk').onclick=function(){const cb=S.confirmCb;if(cb&&cb()===false)return;closeConfirm();};
 
   // Recurrencias (modal)
   document.getElementById('recurClose').onclick=closeRecurModal;
@@ -355,7 +381,7 @@ function wireUI(){
     const first=S.categories[S.recur.type][0];S.recur.color=first?first.color:(paletteFor(S.recur.type)[0]||'#64748B');markSwatch('recurSwatchRow',S.recur.color);});
   document.getElementById('recurChipRow').addEventListener('click',function(e){const chip=e.target.closest('.chip');if(chip&&!chip.classList.contains('add-chip'))selectRecurChip(chip);});
   document.getElementById('recurSwatchRow').addEventListener('click',function(e){const s=e.target.closest('.swatch');if(!s)return;S.recur.color=s.dataset.color;markSwatch('recurSwatchRow',S.recur.color);});
-  document.getElementById('recurSwatchRowCustom').addEventListener('input',function(e){S.recur.color=e.target.value;markSwatch('recurSwatchRow',S.recur.color);});
+  wireColorWheel('recurSwatchRowCustom',function(){return S.recur.color;},function(c){S.recur.color=c;markSwatch('recurSwatchRow',c);});
 
   // Metas (modal)
   document.getElementById('goalClose').onclick=closeGoalModal;
@@ -365,7 +391,7 @@ function wireUI(){
   document.getElementById('goalTarget').addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);});
   document.getElementById('goalSaved').addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);});
   document.getElementById('goalSwatchRow').addEventListener('click',function(e){const s=e.target.closest('.swatch');if(!s)return;S.goal.color=s.dataset.color;markSwatch('goalSwatchRow',S.goal.color);});
-  document.getElementById('goalSwatchRowCustom').addEventListener('input',function(e){S.goal.color=e.target.value;markSwatch('goalSwatchRow',S.goal.color);});
+  wireColorWheel('goalSwatchRowCustom',function(){return S.goal.color;},function(c){S.goal.color=c;markSwatch('goalSwatchRow',c);});
 
   document.addEventListener('keydown',function(e){if(e.key==='Escape'){closeModal();closeActionMenu();closeMore();closeExport();closeCal();closePendModal();closeEditCat();closeConfirm();closeRecurModal();closeGoalModal();}});
 
@@ -419,7 +445,7 @@ function setupAutoHideBars(){
     if(!ticking){ticking=true;requestAnimationFrame(onScroll);}
   },{capture:true,passive:true});
 }
-function setSeg(id,btn){document.querySelectorAll('#'+id+' button').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');moveSegInk(id);}
+function setSeg(id,btn){if(window.Haptic&&Haptic.light)Haptic.light();document.querySelectorAll('#'+id+' button').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');moveSegInk(id);}
 function moveSegInk(seg){
   if(typeof seg==='string')seg=document.getElementById(seg);
   if(!seg)return;
@@ -484,6 +510,9 @@ function switchView(view,btn){
   moveTabInk(btn);
   syncBottomNav(view);
   renderCurrentView();
+  // Transición de entrada al cambiar de vista (se siente más pulido)
+  const cur=document.getElementById('view-'+view);
+  if(cur){cur.style.animation='none';void cur.offsetWidth;cur.style.animation='viewEnter .34s var(--ease) both';}
   requestAnimationFrame(positionAllSegInks);
 }
 /* Cambiar de vista desde la barra inferior, reutilizando la pestaña superior */
@@ -530,7 +559,7 @@ function renderDashboard(){
   if(dash)dash.classList.toggle('is-empty',!hasAny);
   if(!hasAny)return;
   const list=periodTx();
-  const inc=sumType(list,'Income'),exp=sumType(list,'Expense'),sav=savingsNet(list),bal=globalDisponible();
+  const inc=sumType(list,'Income'),exp=sumType(list,'Expense'),sav=savingsNet(list),bal=disponibleReal();
   countUp('income',inc);countUp('expense',exp);countUp('savings',sav);countUp('balance',bal);
   setSub('income',countOf(list,'Income'));setSub('expense',countOf(list,'Expense'));
   const fs=fromSavingsSum(list);
@@ -599,33 +628,59 @@ function countOf(list,type){const n=list.filter(function(t){return t.type===type
 function setSub(key,txt){const el=document.querySelector('[data-kpi-sub="'+key+'"]');if(el&&key!=='balance')el.textContent=txt;}
 function countUp(key,to){
   const el=document.querySelector('[data-kpi="'+key+'"]');
+  if(!el)return;
+  const had=(key in S._kpiPrev);
   const from=S._kpiPrev[key]||0; S._kpiPrev[key]=to;
+  // Destello de color cuando el valor cambia (no en la primera carga)
+  if(had && Math.round(to)!==Math.round(from)){
+    el.classList.remove('kpi-up','kpi-down'); void el.offsetWidth;
+    el.classList.add(to>=from?'kpi-up':'kpi-down');
+    setTimeout(function(){el.classList.remove('kpi-up','kpi-down');},800);
+  }
+  animateMoney(el,from,to);
+}
+/* Anima un valor de dinero (con símbolo) de "from" a "to" en un elemento. */
+function animateMoney(el,from,to){
+  if(!el)return;
   const dur=600,t0=performance.now();
-  function step(now){const p=Math.min((now-t0)/dur,1),e=1-Math.pow(1-p,3);el.textContent=money(from+(to-from)*e);if(p<1)requestAnimationFrame(step);}
+  function step(now){const p=Math.min((now-t0)/dur,1),e=1-Math.pow(1-p,3);el.innerHTML=moneyHTML(from+(to-from)*e);if(p<1)requestAnimationFrame(step);}
   requestAnimationFrame(step);
 }
 function renderDonut(type){
-  const list=periodTx(), data=breakdown(list,type), total=data.reduce(function(a,d){return a+d.amount;},0);
+  // Solo categorías con monto positivo (un retiro de meta es ahorro negativo y no se grafica)
+  const list=periodTx(), data=breakdown(list,type).filter(function(d){return d.amount>0;}), total=data.reduce(function(a,d){return a+d.amount;},0);
   document.querySelector('[data-donut-total="'+type+'"]').textContent=money(total);
   const center=document.querySelector('[data-donut-center="'+type+'"]');
-  center.innerHTML='<div class="dc-top">'+tipoES(type)+'</div><div class="dc-val">'+money(total)+'</div>';
+  // Número central con conteo animado (igual que los KPIs)
+  center.innerHTML='<div class="dc-top">'+tipoES(type)+'</div><div class="dc-val"></div>';
+  animateMoney(center.querySelector('.dc-val'), S._donutPrev[type]||0, total); S._donutPrev[type]=total;
   const legend=document.querySelector('[data-legend="'+type+'"]'), canvas=document.querySelector('[data-donut="'+type+'"]');
-  if(S.charts[type]){S.charts[type].destroy();S.charts[type]=null;}
-  if(!data.length){legend.innerHTML='<li class="empty">'+TXT.sinDatos+'</li>';const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);return;}
-  S.charts[type]=new Chart(canvas,{
-    type:'doughnut',
-    data:{labels:data.map(function(d){return d.name;}),datasets:[{data:data.map(function(d){return d.amount;}),backgroundColor:data.map(function(d){return d.color;}),borderColor:'#121a2e',borderWidth:3,hoverOffset:6}]},
-    options:{cutout:'72%',responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){const pct=total?Math.round(c.parsed/total*100):0;return ' '+c.label+': '+money(c.parsed)+' ('+pct+'%)';}}}},
-      animation:{animateRotate:true,animateScale:true,duration:750,easing:'easeOutQuart'}}
-  });
+  if(!data.length){if(S.charts[type]){S.charts[type].destroy();S.charts[type]=null;}legend.innerHTML='<li class="empty">'+TXT.sinDatos+'</li>';const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);return;}
+  // Con una sola categoría (100%) el anillo va completo, sin muesca ni separación
+  const single=data.length<=1;
+  const ds={data:data.map(function(d){return d.amount;}),backgroundColor:data.map(function(d){return d.color;}),borderColor:'#121a2e',borderWidth:single?0:2,hoverOffset:single?0:8,borderRadius:single?0:5,spacing:single?0:2};
+  if(S.charts[type]){
+    // Transición suave: actualizar el anillo existente en vez de recrearlo (las porciones se animan)
+    const ch=S.charts[type];
+    ch.data.labels=data.map(function(d){return d.name;});
+    ch.data.datasets[0]=Object.assign(ch.data.datasets[0],ds);
+    ch.options.plugins.tooltip.callbacks.label=function(c){const pct=total?Math.round(c.parsed/total*100):0;return ' '+c.label+': '+money(c.parsed)+' ('+pct+'%)';};
+    ch.update();
+  }else{
+    S.charts[type]=new Chart(canvas,{
+      type:'doughnut',
+      data:{labels:data.map(function(d){return d.name;}),datasets:[ds]},
+      options:{cutout:'74%',responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){const pct=total?Math.round(c.parsed/total*100):0;return ' '+c.label+': '+money(c.parsed)+' ('+pct+'%)';}}}},
+        animation:{animateRotate:true,animateScale:true,duration:750,easing:'easeOutQuart'}}
+    });
+  }
   legend.innerHTML=data.map(function(d,i){const pct=total?Math.round(d.amount/total*100):0;
     return '<li style="animation-delay:'+(i*40)+'ms"><span class="lg-dot" style="background:'+d.color+'"></span><span class="lg-name">'+esc(d.name)+'</span><span class="lg-pct">'+pct+'%</span><span class="lg-amt">'+money(d.amount)+'</span></li>';}).join('');
 }
 function renderTrend(){
   const ref=S.ref, period=S.period;
   const canvas=document.getElementById('trendChart');
-  if(S.charts.trend)S.charts.trend.destroy();
 
   // ── DÍA: una barra por tipo (Ingresos/Gastos/Ahorro), siempre centrado ──
   if(period==='day'){
@@ -633,15 +688,24 @@ function renderTrend(){
     const b={start:sod(ref),end:sod(ref)};
     const list=allMovements().filter(function(t){return inBounds(t,b);});
     const vals=[sumType(list,'Income'),sumType(list,'Expense'),sumType(list,'Savings')];
-    S.charts.trend=new Chart(canvas,{
-      type:'bar',
-      data:{labels:['Ingresos','Gastos','Ahorro'],datasets:[{data:vals,backgroundColor:['#10B981','#F43F5E','#0EA5E9'],borderRadius:6,maxBarThickness:64}]},
-      options:{responsive:true,maintainAspectRatio:false,
-        categoryPercentage:0.6,barPercentage:0.8,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return ' '+c.label+': '+money(c.parsed.y);}}}},
-        scales:{x:{grid:{display:false},border:{display:false}},y:{beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{callback:function(v){return compact(v);}}}},
-        animation:{duration:600,easing:'easeOutQuart'}}
-    });
+    if(S.charts.trend && S._trendMode==='day'){
+      // Morph suave: misma estructura, solo cambian los valores
+      S.charts.trend.data.labels=['Ingresos','Gastos','Ahorro'];
+      S.charts.trend.data.datasets[0].data=vals;
+      S.charts.trend.update();
+    }else{
+      if(S.charts.trend)S.charts.trend.destroy();
+      S.charts.trend=new Chart(canvas,{
+        type:'bar',
+        data:{labels:['Ingresos','Gastos','Ahorro'],datasets:[{data:vals,backgroundColor:function(c){var cols=['#10B981','#F43F5E','#0EA5E9'];return barGrad(c,cols[c.dataIndex]||cols[0]);},borderRadius:6,maxBarThickness:64}]},
+        options:{responsive:true,maintainAspectRatio:false,
+          categoryPercentage:0.6,barPercentage:0.8,
+          plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return ' '+c.label+': '+money(c.parsed.y);}}}},
+          scales:{x:{grid:{display:false},border:{display:false}},y:{beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{callback:function(v){return compact(v);}}}},
+          animation:{duration:600,easing:'easeOutQuart'}}
+      });
+      S._trendMode='day';
+    }
     return;
   }
 
@@ -667,20 +731,40 @@ function renderTrend(){
     for(let mo=0;mo<12;mo++)bucket(MON[mo], new Date(y,mo,1), new Date(y,mo+1,0));
   }
   document.getElementById('trendCaption').textContent=caption;
+  if(S.charts.trend && S._trendMode==='grouped'){
+    // Morph suave entre semana/mes/año: misma estructura (3 series), solo cambian datos y etiquetas
+    const ch=S.charts.trend;
+    ch.data.labels=labels;
+    ch.data.datasets[0].data=inc; ch.data.datasets[1].data=exp; ch.data.datasets[2].data=sav;
+    ch.update();
+    return;
+  }
+  if(S.charts.trend)S.charts.trend.destroy();
+  S._trendMode='grouped';
   S.charts.trend=new Chart(canvas,{
     type:'bar',
     data:{labels:labels,datasets:[
-      {label:'Ingresos',data:inc,backgroundColor:'#10B981',borderRadius:6,maxBarThickness:30},
-      {label:'Gastos',data:exp,backgroundColor:'#F43F5E',borderRadius:6,maxBarThickness:30},
-      {label:'Ahorro',data:sav,backgroundColor:'#0EA5E9',borderRadius:6,maxBarThickness:30}]},
+      {label:'Ingresos',data:inc,backgroundColor:function(c){return barGrad(c,'#10B981');},borderRadius:6,maxBarThickness:30},
+      {label:'Gastos',data:exp,backgroundColor:function(c){return barGrad(c,'#F43F5E');},borderRadius:6,maxBarThickness:30},
+      {label:'Ahorro',data:sav,backgroundColor:function(c){return barGrad(c,'#0EA5E9');},borderRadius:6,maxBarThickness:30}]},
     options:{responsive:true,maintainAspectRatio:false,
       categoryPercentage:0.8,barPercentage:0.92,
-      plugins:{legend:{display:true,labels:{usePointStyle:true,pointStyle:'circle',boxWidth:8,padding:16}},tooltip:{callbacks:{label:function(c){return ' '+c.dataset.label+': '+money(c.parsed.y);}}}},
+      plugins:{legend:{display:true,labels:{usePointStyle:true,pointStyle:'circle',boxWidth:8,padding:16,
+        color:'#8a97b8',
+        generateLabels:function(chart){var cols=['#10B981','#F43F5E','#0EA5E9'];return chart.data.datasets.map(function(ds,i){return {text:ds.label,fillStyle:cols[i],strokeStyle:cols[i],lineWidth:0,pointStyle:'circle',fontColor:'#8a97b8',datasetIndex:i,hidden:!chart.isDatasetVisible(i)};});}}},tooltip:{callbacks:{label:function(c){return ' '+c.dataset.label+': '+money(c.parsed.y);}}}},
       scales:{x:{grid:{display:false},border:{display:false},offset:true},y:{beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{callback:function(v){return compact(v);}}}},
       animation:{duration:650,easing:'easeOutQuart'}}
   });
 }
 function compact(v){const a=Math.abs(v);if(a>=1e6)return (v/1e6).toFixed(1)+'M';if(a>=1e3)return Math.round(v/1e3)+'k';return v;}
+function hexToRgba(hex,a){hex=String(hex).replace('#','');return 'rgba('+parseInt(hex.slice(0,2),16)+','+parseInt(hex.slice(2,4),16)+','+parseInt(hex.slice(4,6),16)+','+a+')';}
+/* Gradiente vertical para barras: color sólido arriba → translúcido abajo (look premium) */
+function barGrad(ctx,hex){
+  const ch=ctx.chart,area=ch.chartArea; if(!area)return hex;
+  const g=ch.ctx.createLinearGradient(0,area.top,0,area.bottom);
+  g.addColorStop(0,hexToRgba(hex,1));g.addColorStop(1,hexToRgba(hex,.40));
+  return g;
+}
 
 /* ── Historial ── */
 function historyItems(){
@@ -744,7 +828,7 @@ function rowHTML(t){
   let meta=DOW[d.getDay()]+' '+d.getDate()+' '+MON[d.getMonth()];
   if(t._fromPending)meta+=' · '+(t.type==='Income'?'por cobrar':'por pagar')+(t.method?' · '+esc(t.method):'');
   if(t.note)meta+=' · '+esc(t.note);
-  if(t.source)meta+=' · '+(t.source==='Salary'?'Salario':t.source==='Other'?'Otra fuente':t.source==='Savings'?'desde ahorro':t.source);
+  if(t.source)meta+=' · '+(t.source==='Salary'?'Disponible actual':t.source==='Other'?'Nuevo ingreso':t.source==='Savings'?'desde ahorro':t.source);
   const sign=t.type==='Income'?'+':'−';
   const del=t._fromPending?'data-pend="'+t._pendId+'"':'data-id="'+t.id+'"';
   const rowCls='hist-row'+(t._fromPending?' is-pend':'')+(t._fromPending&&t._pendKey!=='completed'?' is-unrealized':'');
@@ -774,11 +858,13 @@ function renderCategories(){
     return '<div class="cat-col"><h3><span class="hdot" style="background:'+meta[type]+'"></span>'+tipoES(type)+'</h3>'+
       '<div class="cat-list">'+items+'</div>'+
       '<div class="cat-add"><input type="text" placeholder="Nueva categoría de '+tipoES(type).toLowerCase()+'" data-type="'+type+'" maxlength="28"><button class="btn-ghost cat-add-btn" data-type="'+type+'">Agregar</button></div>'+
-      '<div class="mini-swatches" data-picker="'+type+'">'+sws+'<input type="color" class="swatch-custom mini-custom" title="Elegir cualquier color"></div></div>';
+      '<div class="mini-swatches" data-picker="'+type+'">'+sws+'<button type="button" class="swatch-custom mini-custom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div></div>';
   }).join('');
   ['Income','Expense','Savings'].forEach(function(type){const pk=cols.querySelector('[data-picker="'+type+'"]');if(pk){const f=pk.querySelector('.swatch');if(f)f.classList.add('active');}});
   cols.querySelectorAll('.mini-swatches').forEach(function(pk){pk.addEventListener('click',function(e){const s=e.target.closest('.swatch');if(!s)return;pk.querySelectorAll('.swatch').forEach(function(x){x.classList.remove('active');});s.classList.add('active');delete pk.dataset.custom;});
-    const ci=pk.querySelector('.mini-custom');if(ci)ci.addEventListener('input',function(e){pk.querySelectorAll('.swatch').forEach(function(x){x.classList.remove('active');});pk.dataset.custom=e.target.value;});});
+    const ci=pk.querySelector('.mini-custom');if(ci)ci.addEventListener('click',function(e){e.preventDefault();
+      ColorWheel.open(ci,pk.dataset.custom||(paletteFor(pk.dataset.picker)[0]||'#4F46E5'),function(c){
+        pk.querySelectorAll('.swatch').forEach(function(x){x.classList.remove('active');});pk.dataset.custom=c;ci.classList.add('active');});});});
   cols.querySelectorAll('.cat-add-btn').forEach(function(btn){btn.onclick=function(){
     const type=btn.dataset.type, input=cols.querySelector('.cat-add input[data-type="'+type+'"]'), pk=cols.querySelector('[data-picker="'+type+'"]'), picker=pk.querySelector('.swatch.active');
     const color=picker?picker.dataset.color:(pk.dataset.custom||(paletteFor(type)[0]||'#64748B'));
@@ -881,8 +967,23 @@ function fechaLarga(ymdStr){const d=parseYMD(ymdStr);return DOW[d.getDay()]+' '+
 
 function refreshPend(){renderPending();if(S.view==='dashboard')renderDashboard();}
 
+/* Verifica que haya disponible para completar un pendiente de GASTO.
+   Si no, avisa en la app + manda notificación y devuelve false (no se realiza el pago).
+   addBack = monto que este pendiente ya estaba descontando (al editar uno ya completado). */
+function pendFundsOk_(p,addBack){
+  if(!p||p.kind!=='Expense')return true;
+  const disp=disponibleReal()+(addBack||0);
+  if(p.amount>disp){
+    toast('No se realizó el pago "'+(p.category||'pendiente')+'" · saldo insuficiente (disponible '+money(disp)+')','err');
+    if(window.Notif&&Notif.now)Notif.now('pend-nofunds:'+(p.id||'x')+':'+Date.now(),'⚠️ Pago no realizado','No se realizó el pago pendiente "'+(p.category||'')+'" por '+money(p.amount)+': saldo insuficiente.');
+    return false;
+  }
+  return true;
+}
 function togglePendDone(id){
   const p=S.pendings.find(function(x){return x.id===id;}); if(!p)return;
+  // Al completar un gasto: bloquear si dejaría el disponible en negativo
+  if(p.status!=='completed' && !pendFundsOk_(p,0))return;
   const prev=p.status; p.status=(p.status==='completed'?'pending':'completed');
   refreshPend();
   if(p.status==='completed'){if(window.Haptic)Haptic.success();const bd=document.querySelector('.pend-act.done[data-id="'+id+'"]');if(bd){const it=bd.closest('.pend-item');if(it)it.classList.add('just-done');}}
@@ -963,6 +1064,12 @@ function savePending(){
     method:document.getElementById('pendMethod').value, dueDate:date, note:document.getElementById('pendNote').value.trim(),
     status:document.getElementById('pendDone').checked?'completed':'pending'};
   const editId=S.pend.id;
+  // Si se marca como completado un gasto, validar disponible (no dejar negativo)
+  if(p.status==='completed'){
+    let addBack=0;
+    if(editId){const prevP=S.pendings.find(function(x){return x.id===editId;});if(prevP&&prevP.status==='completed')addBack=prevP.amount;}
+    if(!pendFundsOk_(Object.assign({id:editId},p),addBack))return;
+  }
   closePendModal();
   if(editId){
     const idx=S.pendings.findIndex(function(x){return x.id===editId;});
@@ -987,7 +1094,7 @@ function savePending(){
       const tipo=p.kind==='Income'?'cobro':'pago';
       Notif.now('pend-new:'+temp.id,'🕒 Nuevo pendiente','Registraste un '+tipo+' pendiente: '+(p.category||'')+' · '+money(p.amount));
     }
-    gs('addPending',p).then(function(saved){const i=S.pendings.findIndex(function(x){return x.id===temp.id;});if(i>=0)S.pendings[i]=saved;toast('Pendiente guardado','ok');
+    gs('addPending',p).then(function(saved){const i=S.pendings.findIndex(function(x){return x.id===temp.id;});if(i>=0)S.pendings[i]=saved;refreshPend();toast('Pendiente guardado','ok');
       if(window.Notif&&saved&&saved.id)schedulePendAlerts(saved);})
       .catch(function(){S.pendings=S.pendings.filter(function(x){return x.id!==temp.id;});refreshPend();toast('No se pudo guardar','err');});
   }
@@ -1024,7 +1131,7 @@ function openModal(type,editId){
   const srcVal=(editing&&type==='Savings')?(tx.source==='Other'?'Other':'Salary'):'Salary';
   document.querySelectorAll('#sourceSeg button').forEach(function(b){b.classList.toggle('active',b.dataset.source===srcVal);});
   if(type==='Savings')S.modal.source=srcVal;
-  document.getElementById('sourceHint').textContent=srcVal==='Salary'?'Se descuenta de tu saldo de salario.':'Proviene de otra fuente de fondos.';
+  document.getElementById('sourceHint').textContent=srcVal==='Salary'?'Se descuenta de tu disponible actual.':'Es un nuevo ingreso (no afecta tu disponible actual).';
   setupGoalRow_(type,editing);
   buildChips(type); buildSwatches();
   if(editing){
@@ -1074,6 +1181,7 @@ function aplicarMetaAhorro_(metaSel, metaNewName, metaNewTarget, amount){
   }else{
     const g=S.goals.find(function(x){return x.id===metaSel;}); if(!g) return;
     const prev=g.saved; g.saved=Math.max(0,g.saved+amount); if(S.view==='goals')renderGoals();
+    if(g.target&&prev<g.target&&g.saved>=g.target)celebrate(g.color);
     gs('contributeGoal',metaSel,amount).then(function(res){if(res&&typeof res.saved==='number'){g.saved=res.saved;if(S.view==='goals')renderGoals();}toast('Aporte sumado a "'+g.name+'"','ok');if(window.Notif)evalGoal(g,true);})
       .catch(function(){g.saved=prev;if(S.view==='goals')renderGoals();toast('No se pudo sumar a la meta','err');});
   }
@@ -1089,8 +1197,102 @@ function selectChip(chip){
   if(chip.dataset.color){S.modal.color=chip.dataset.color;markSwatch('swatchRow',S.modal.color);}
 }
 function buildSwatches(){document.getElementById('swatchRow').innerHTML=(paletteFor(S.modal.type)||[]).map(function(col){return '<span class="swatch" data-color="'+col+'" style="background:'+col+'"></span>';}).join('');}
-function markSwatch(id,color){document.querySelectorAll('#'+id+' .swatch').forEach(function(s){s.classList.toggle('active',s.dataset.color===color);});
-  const cp=document.getElementById(id+'Custom');if(cp&&/^#[0-9a-fA-F]{6}$/.test(color||''))cp.value=color;}
+function markSwatch(id,color){
+  let matched=false;
+  document.querySelectorAll('#'+id+' .swatch').forEach(function(s){var on=s.dataset.color===color;s.classList.toggle('active',on);if(on)matched=true;});
+  const cp=document.getElementById(id+'Custom');
+  if(cp){var valid=/^#[0-9a-fA-F]{6}$/.test(color||'');cp.classList.toggle('active',!matched&&valid);if(valid)cp.dataset.color=color;}
+}
+
+/* ── Rueda de color (círculo cromático) reutilizable ──────────────────────
+   Reemplaza el selector nativo del SO por un círculo cromático propio + un
+   recuadro para escribir/ver el código de color. Se abre junto al botón. */
+function hsvToRgb(h,s,v){
+  h=((h%360)+360)%360; var c=v*s, x=c*(1-Math.abs((h/60)%2-1)), m=v-c, r=0,g=0,b=0;
+  if(h<60){r=c;g=x;}else if(h<120){r=x;g=c;}else if(h<180){g=c;b=x;}
+  else if(h<240){g=x;b=c;}else if(h<300){r=x;b=c;}else{r=c;b=x;}
+  return [Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
+}
+function hsvToHex(h,s,v){return '#'+hsvToRgb(h,s,v).map(function(n){return ('0'+n.toString(16)).slice(-2);}).join('').toUpperCase();}
+function hexToHsv(hex){
+  hex=String(hex||'').replace('#','');
+  if(!/^[0-9a-fA-F]{6}$/.test(hex))hex='4F46E5';
+  var r=parseInt(hex.slice(0,2),16)/255,g=parseInt(hex.slice(2,4),16)/255,b=parseInt(hex.slice(4,6),16)/255;
+  var mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn,h=0;
+  if(d){if(mx===r)h=((g-b)/d)%6;else if(mx===g)h=(b-r)/d+2;else h=(r-g)/d+4;h*=60;if(h<0)h+=360;}
+  return {h:h,s:mx?d/mx:0,v:mx};
+}
+var ColorWheel=(function(){
+  var pop,wheel,dim,thumb,valSlider,hexInput,preview,cb,openFor,h=0,s=0,v=1,dragging=false;
+  function build(){
+    pop=document.createElement('div');pop.className='cw-pop';
+    pop.innerHTML='<div class="cw-wheel"><span class="cw-dim"></span><span class="cw-thumb"></span></div>'+
+      '<input type="range" class="cw-val" min="0" max="100" value="100" aria-label="Brillo">'+
+      '<div class="cw-foot"><span class="cw-preview"></span>'+
+      '<label class="cw-hexwrap"><span class="cw-hash">#</span>'+
+      '<input type="text" class="cw-hex" maxlength="6" spellcheck="false" autocomplete="off" placeholder="RRGGBB" aria-label="Código de color"></label></div>';
+    document.body.appendChild(pop);
+    wheel=pop.querySelector('.cw-wheel');dim=pop.querySelector('.cw-dim');thumb=pop.querySelector('.cw-thumb');
+    valSlider=pop.querySelector('.cw-val');hexInput=pop.querySelector('.cw-hex');preview=pop.querySelector('.cw-preview');
+    function pick(e){
+      var r=wheel.getBoundingClientRect(),rad=r.width/2;
+      var px=(e.touches?e.touches[0].clientX:e.clientX)-(r.left+rad);
+      var py=(e.touches?e.touches[0].clientY:e.clientY)-(r.top+rad);
+      var dist=Math.sqrt(px*px+py*py),ang=Math.atan2(py,px)*180/Math.PI;
+      h=(ang+360)%360;s=Math.min(1,dist/rad);apply(true);
+    }
+    wheel.addEventListener('pointerdown',function(e){dragging=true;try{wheel.setPointerCapture(e.pointerId);}catch(_){}pick(e);e.preventDefault();});
+    wheel.addEventListener('pointermove',function(e){if(dragging)pick(e);});
+    wheel.addEventListener('pointerup',function(){dragging=false;});
+    wheel.addEventListener('pointercancel',function(){dragging=false;});
+    valSlider.addEventListener('input',function(){v=valSlider.value/100;apply(true);});
+    hexInput.addEventListener('input',function(){
+      var hx=hexInput.value.replace(/[^0-9a-fA-F]/g,'').slice(0,6);
+      if(hx!==hexInput.value)hexInput.value=hx; // descarta el # y caracteres inválidos
+      if(/^[0-9a-fA-F]{6}$/.test(hx)){var c=hexToHsv(hx);h=c.h;s=c.s;v=c.v;apply(false);}
+    });
+    document.addEventListener('pointerdown',function(e){if(pop.classList.contains('show')&&!pop.contains(e.target)&&e.target!==openFor)close();},true);
+    window.addEventListener('resize',function(){if(pop.classList.contains('show'))close();});
+  }
+  function positionThumb(){
+    var r=wheel.clientWidth/2,a=h*Math.PI/180;
+    thumb.style.left=(r+Math.cos(a)*s*r)+'px';thumb.style.top=(r+Math.sin(a)*s*r)+'px';
+  }
+  function updateChrome(){
+    var hex=hsvToHex(h,s,v);
+    thumb.style.background=hex;preview.style.background=hex;
+    dim.style.opacity=String(1-v);
+    valSlider.style.setProperty('--cw-hue',hsvToHex(h,s,1));
+  }
+  function apply(syncHex){
+    var hex=hsvToHex(h,s,v);
+    positionThumb();updateChrome();
+    if(syncHex)hexInput.value=hex.slice(1); // el # es un prefijo fijo, no editable
+    if(cb)cb(hex);
+  }
+  function open(trigger,color,onPick){
+    if(!pop)build();
+    cb=onPick;openFor=trigger;
+    var c=hexToHsv(color);h=c.h;s=c.s;v=c.v;
+    pop.classList.add('show');
+    apply(true);
+    requestAnimationFrame(function(){
+      var tr=trigger.getBoundingClientRect(),pw=pop.offsetWidth,ph=pop.offsetHeight,pad=8;
+      var left=tr.left,top=tr.bottom+pad;
+      if(left+pw>window.innerWidth-pad)left=window.innerWidth-pad-pw;
+      if(top+ph>window.innerHeight-pad)top=tr.top-pad-ph;
+      pop.style.left=Math.max(pad,left)+'px';pop.style.top=Math.max(pad,top)+'px';
+      positionThumb();
+    });
+  }
+  function close(){if(pop)pop.classList.remove('show');cb=null;openFor=null;dragging=false;}
+  return {open:open,close:close};
+})();
+/* Conecta un botón .swatch-custom para que abra la rueda de color. */
+function wireColorWheel(btnId,getColor,setColor){
+  var btn=document.getElementById(btnId);if(!btn)return;
+  btn.addEventListener('click',function(e){e.preventDefault();ColorWheel.open(btn,getColor(),setColor);});
+}
 function onNewCategoryInModal(){
   const input=document.getElementById('newCatInput'), name=(input.value||'').trim(); if(!name){toast('Ingresa un nombre','err');return;}
   const type=S.modal.type, color=S.modal.color||(paletteFor(type)[0]||'#4F46E5');
@@ -1126,6 +1328,18 @@ function saveTx(){
     if(editId){const prevTx=S.transactions.find(function(t){return t.id===editId;});if(prevTx&&isFromSavings(prevTx))disponible+=prevTx.amount;}
     if(amount>disponible){toast('Saldo insuficiente · disponible '+money(disponible),'err');return;}
   }
+  // Ahorro que sale de tu bolsillo (salario/ingreso): no puede dejar tu disponible en negativo
+  if(tx.type==='Savings' && tx.source!=='Other'){
+    let disponible=disponibleReal();
+    if(editId){const prevTx=S.transactions.find(function(t){return t.id===editId;});if(prevTx&&prevTx.type==='Savings'&&prevTx.source!=='Other')disponible+=prevTx.amount;}
+    if(amount>disponible){toast('Saldo insuficiente · disponible '+money(disponible),'err');return;}
+  }
+  // Gasto normal: no puede superar tu disponible real (dejaría el saldo en negativo)
+  if(tx.type==='Expense' && tx.source!=='Savings'){
+    let disponible=disponibleReal();
+    if(editId){const prevTx=S.transactions.find(function(t){return t.id===editId;});if(prevTx&&prevTx.type==='Expense'&&prevTx.source!=='Savings')disponible+=prevTx.amount;}
+    if(amount>disponible){toast('Saldo insuficiente · disponible '+money(disponible),'err');return;}
+  }
   closeModal();
   if(editId){
     const idx=S.transactions.findIndex(function(t){return t.id===editId;});
@@ -1139,7 +1353,7 @@ function saveTx(){
   }else{
     const temp=Object.assign({id:'tmp-'+Date.now(),timestamp:new Date().toISOString()},tx);
     S.transactions.push(temp); S.ref=parseYMD(tx.date); renderAll();
-    gs('addTransaction',tx).then(function(saved){const i=S.transactions.findIndex(function(t){return t.id===temp.id;});if(i>=0)S.transactions[i]=saved;toast(TXT.guardado+' · '+money(amount),'ok');aplicarMetaAhorro_(metaSel,metaNewName,metaNewTarget,amount);if(window.Notif){if(tx.type==='Expense')evalBudget(tx.category,true);scheduleDailyReminders();}})
+    gs('addTransaction',tx).then(function(saved){const i=S.transactions.findIndex(function(t){return t.id===temp.id;});if(i>=0)S.transactions[i]=saved;renderAll();toast(TXT.guardado+' · '+money(amount),'ok');aplicarMetaAhorro_(metaSel,metaNewName,metaNewTarget,amount);if(window.Notif){if(tx.type==='Expense')evalBudget(tx.category,true);scheduleDailyReminders();}})
       .catch(function(){S.transactions=S.transactions.filter(function(t){return t.id!==temp.id;});renderAll();toast(TXT.errGuardar,'err');});
   }
 }
@@ -1488,7 +1702,7 @@ function saveRecur(){
   }else{
     const temp=Object.assign({id:'tmp-'+Date.now(),lastGen:''},rc);
     S.recurring.push(temp);renderRecurring();
-    gs('addRecurring',rc).then(function(saved){const i=S.recurring.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.recurring[i]=saved;toast('Recurrencia creada','ok');})
+    gs('addRecurring',rc).then(function(saved){const i=S.recurring.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.recurring[i]=saved;if(S.view==='recurring')renderRecurring();toast('Recurrencia creada','ok');})
       .catch(function(){S.recurring=S.recurring.filter(function(x){return x.id!==temp.id;});renderRecurring();toast('No se pudo guardar','err');});
   }
 }
@@ -1501,7 +1715,7 @@ function renderGoals(){
   wrap.innerHTML=S.goals.map(function(g,i){
     const pct=g.target?Math.min(100,Math.round(g.saved/g.target*100)):0;
     const done=g.target&&g.saved>=g.target;
-    return '<div class="goal-item" style="animation-delay:'+(i*30)+'ms">'+
+    return '<div class="goal-item'+(done?' done':'')+'" style="animation-delay:'+(i*30)+'ms">'+
       '<div class="goal-head"><span class="goal-dot" style="background:'+g.color+'"></span>'+
         '<span class="goal-name">'+esc(g.name)+(done?'<span class="b-tag ok">¡Lograda!</span>':'')+'</span>'+
         '<span class="goal-pct">'+pct+'%</span></div>'+
@@ -1522,17 +1736,55 @@ function renderGoals(){
 function contribGoal(id,isMinus){
   const g=S.goals.find(function(x){return x.id===id;});if(!g)return;
   const title=(isMinus?'Retirar de ':'Aportar a ')+'"'+g.name+'"';
-  const html='<div style="margin-top:10px"><div class="amount-field"><span class="cur">'+S.settings.currencySymbol+'</span>'+
-    '<input type="text" inputmode="numeric" id="contribInput" placeholder="0" autocomplete="off"></div></div>';
+  let html='<div style="margin-top:10px"><div class="amount-field"><span class="cur">'+S.settings.currencySymbol+'</span>'+
+    '<input type="text" inputmode="numeric" pattern="[0-9]*" id="contribInput" placeholder="0" autocomplete="off"></div>';
+  if(isMinus){
+    html+='<p class="hint" style="margin-top:8px">Disponible en la meta: '+money(g.saved)+'.</p>';
+  }else{
+    html+='<div class="segmented inline" id="contribSrcSeg" style="margin-top:12px">'+
+      '<button type="button" class="active" data-source="Salary">Disponible actual</button>'+
+      '<button type="button" data-source="Other">Nuevo ingreso</button></div>'+
+      '<p class="hint" id="contribHint" style="margin-top:8px">Se descuenta de tu disponible actual ('+money(disponibleReal())+').</p>';
+  }
+  html+='</div>';
   openMiniInput(title,html,isMinus?'Retirar':'Aportar',function(){
     let v=parseInt(String(document.getElementById('contribInput').value).replace(/\D/g,''),10)||0;
-    if(v<=0)return;
-    if(isMinus)v=-v;
-    const prev=g.saved; g.saved=Math.max(0,g.saved+v); renderGoals();
-    gs('contributeGoal',id,v).then(function(res){if(res&&typeof res.saved==='number'){g.saved=res.saved;renderGoals();}toast('Meta actualizada','ok');if(window.Notif)evalGoal(g,true);})
-      .catch(function(){g.saved=prev;renderGoals();toast('No se pudo guardar','err');});
+    if(v<=0)return false;
+    let source='';
+    if(isMinus){
+      if(v>g.saved){toast('Saldo insuficiente · en la meta hay '+money(g.saved),'err');return false;}
+    }else{
+      const sb=document.querySelector('#contribSrcSeg button.active');
+      source=sb?sb.dataset.source:'Salary';
+      if(source==='Salary'){
+        const disp=disponibleReal();
+        if(v>disp){toast('Saldo insuficiente · disponible '+money(disp),'err');return false;}
+      }
+    }
+    const signed=isMinus?-v:v;
+    // Movimiento de Ahorro: aporte (+) o retiro (−). Se refleja en la estadística de ahorro y el historial.
+    const tx={type:'Savings',category:g.name,amount:signed,color:g.color||'#8B5CF6',
+      note:(isMinus?'Retiro de meta':'Aporte a meta')+' "'+g.name+'"',date:ymd(new Date()),source:source,_goalId:id};
+    const temp=Object.assign({id:'tmp-'+Date.now(),timestamp:new Date().toISOString()},tx);
+    S.transactions.push(temp);
+    const prevSaved=g.saved; g.saved=Math.max(0,g.saved+signed);
+    renderAll();
+    const justDone=!isMinus&&g.target&&prevSaved<g.target&&g.saved>=g.target;
+    if(justDone)celebrate(g.color);
+    gs('addTransaction',tx).then(function(saved){const i=S.transactions.findIndex(function(t){return t.id===temp.id;});if(i>=0&&saved)S.transactions[i]=saved;renderAll();})
+      .catch(function(){S.transactions=S.transactions.filter(function(t){return t.id!==temp.id;});g.saved=prevSaved;renderAll();toast('No se pudo guardar el movimiento','err');});
+    gs('contributeGoal',id,signed).then(function(res){if(res&&typeof res.saved==='number'){g.saved=res.saved;renderAll();}toast((isMinus?'Retiro registrado':'Aporte registrado')+' · '+money(v),'ok');if(window.Notif)evalGoal(g,true);})
+      .catch(function(){toast('No se pudo actualizar la meta','err');});
   });
-  setTimeout(function(){const el=document.getElementById('contribInput');if(el){el.focus();el.addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);});}},260);
+  setTimeout(function(){
+    const el=document.getElementById('contribInput');
+    if(el){el.focus();el.addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);});}
+    const seg=document.getElementById('contribSrcSeg');
+    if(seg)seg.addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;
+      seg.querySelectorAll('button').forEach(function(x){x.classList.remove('active');});b.classList.add('active');
+      const hint=document.getElementById('contribHint');
+      if(hint)hint.textContent=b.dataset.source==='Salary'?('Se descuenta de tu disponible actual ('+money(disponibleReal())+').'):'Es un nuevo ingreso (no afecta tu disponible actual).';});
+  },260);
 }
 function removeGoal(id){
   const g=S.goals.find(function(x){return x.id===id;});if(!g)return;
@@ -1580,7 +1832,7 @@ function saveGoal(){
   }else{
     const temp=Object.assign({id:'tmp-'+Date.now()},g);
     S.goals.push(temp);renderGoals();
-    gs('addGoal',g).then(function(saved){const i=S.goals.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.goals[i]=saved;toast('Meta creada','ok');if(window.Notif)evalGoal(saved||temp,true);})
+    gs('addGoal',g).then(function(saved){const i=S.goals.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.goals[i]=saved;if(S.view==='goals')renderGoals();toast('Meta creada','ok');if(window.Notif)evalGoal(saved||temp,true);})
       .catch(function(){S.goals=S.goals.filter(function(x){return x.id!==temp.id;});renderGoals();toast('No se pudo guardar','err');});
   }
 }
@@ -1594,6 +1846,27 @@ function toast(msg,kind){
   setTimeout(function(){el.classList.add('out');setTimeout(function(){el.remove();},300);},2400);
 }
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+/* Confeti de celebración (ej. al cumplir una meta de ahorro) */
+function celebrate(accent){
+  if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion:reduce)').matches)return;
+  if(window.Haptic&&Haptic.heavy)Haptic.heavy();
+  const layer=document.createElement('div');layer.className='confetti';document.body.appendChild(layer);
+  const colors=[accent||'#6366F1','#10B981','#0EA5E9','#F59E0B','#F43F5E','#A855F7'];
+  const N=90;
+  for(let i=0;i<N;i++){
+    const p=document.createElement('span');
+    const w=6+Math.random()*7;
+    p.style.left=(Math.random()*100)+'vw';
+    p.style.background=colors[i%colors.length];
+    p.style.width=w+'px';p.style.height=(w*0.5+3)+'px';
+    p.style.setProperty('--dx',((Math.random()*2-1)*180)+'px');
+    p.style.setProperty('--rot',(Math.random()*900-450)+'deg');
+    p.style.animationDuration=(2200+Math.random()*1400)+'ms';
+    p.style.animationDelay=(Math.random()*260)+'ms';
+    layer.appendChild(p);
+  }
+  setTimeout(function(){layer.remove();},4400);
+}
 
 window.S = S;
 
