@@ -670,19 +670,11 @@ function countUp(key,to){
 /* Anima un valor de dinero (con símbolo) de "from" a "to" en un elemento. */
 /* "Dibuja" la gráfica revelándola con clip-path por CSS (la dona crece desde el centro,
    las barras desde abajo) — simula que se está calculando, sin redibujar el canvas cada frame. */
-function pulseChart(c,kind){
+function pulseChart(c,kind,seq){
   if(!c)return;
   c.style.animation='none'; void c.offsetWidth;
-  if(kind==='bars'){
-    c.style.animation='drawBars .85s var(--ease) both';
-    return;
-  }
-  // Dona: máscara cónica SOLO durante el trazado; al terminar se quita para no dejar costura
-  var m='conic-gradient(from -90deg, #000 var(--sweep,0deg), rgba(0,0,0,0) 0deg)';
-  c.style.webkitMask=m; c.style.mask=m;
-  var done=function(){ c.style.webkitMask=''; c.style.mask=''; c.removeEventListener('animationend',done); };
-  c.addEventListener('animationend',done);
-  c.style.animation='drawDonut .85s var(--ease) both';
+  var delay=((seq||0)*160)+'ms';
+  c.style.animation=(kind==='bars'?'chartPopBars':'chartPopDonut')+' .7s var(--ease) '+delay+' both';
 }
 function animateMoney(el,from,to){
   if(!el)return;
@@ -705,15 +697,18 @@ function renderDonut(type){
   const single=data.length<=1;
   // Versión ligera (sin bordes redondeados ni separación, que era lo pesado al animar)
   const ds={data:data.map(function(d){return d.amount;}),backgroundColor:data.map(function(d){return d.color;}),borderColor:'#121a2e',borderWidth:single?0:2,hoverOffset:0};
-  // Recrear para que el aro se DIBUJE girando (animateRotate de Chart.js, sin máscara → sin costura)
+  // Se dibuja el canvas AL INSTANTE (sin animación de Chart.js = cero repintado por frame).
+  // La animación de entrada es 100% GPU (opacity + transform) vía pulseChart → sin tirones.
+  const seq=({Expense:0,Income:1,Savings:2})[type]||0;
   if(S.charts[type])S.charts[type].destroy();
   S.charts[type]=new Chart(canvas,{
     type:'doughnut',
     data:{labels:data.map(function(d){return d.name;}),datasets:[ds]},
     options:{cutout:'74%',responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){const pct=total?Math.round(c.parsed/total*100):0;return ' '+c.label+': '+money(c.parsed)+' ('+pct+'%)';}}}},
-      animation:{animateRotate:true,animateScale:false,duration:750,easing:'easeOutCubic'}}
+      animation:false}
   });
+  pulseChart(canvas,'donut',seq);
   legend.innerHTML=data.map(function(d,i){const pct=total?Math.round(d.amount/total*100):0;
     return '<li style="animation-delay:'+(i*40)+'ms"><span class="lg-dot" style="background:'+d.color+'"></span><span class="lg-name">'+esc(d.name)+'</span><span class="lg-pct">'+pct+'%</span><span class="lg-amt">'+money(d.amount)+'</span></li>';}).join('');
 }
