@@ -679,7 +679,7 @@ function pulseChart(c,kind,seq){
   var delay=((seq||0)*160)+'ms';
   c.style.animation=(kind==='bars'?'chartPopBars':'chartPopDonut')+' .7s var(--ease) '+delay+' both';
 }
-var _tipShown=false;
+var _tipShown=false, _tipChart=null;
 /* Oculta el tooltip y limpia el estado de tooltip de las gráficas (excepto la indicada). */
 function clearChartTipState(exceptCanvas){
   Object.keys(S.charts||{}).forEach(function(k){
@@ -688,7 +688,7 @@ function clearChartTipState(exceptCanvas){
   });
 }
 function hideChartTip(){
-  var tip=document.getElementById('chartTip'); if(tip)tip.classList.remove('show'); _tipShown=false;
+  var tip=document.getElementById('chartTip'); if(tip)tip.classList.remove('show'); _tipShown=false; _tipChart=null;
 }
 /* Cierra el tooltip al hacer scroll. */
 function onScrollDismissTip(){ if(_tipShown){hideChartTip(); clearChartTipState(null);} }
@@ -706,7 +706,7 @@ function externalChartTooltip(context){
   var tip=document.getElementById('chartTip');
   if(!tip){tip=document.createElement('div');tip.id='chartTip';tip.className='chart-tip';document.body.appendChild(tip);}
   var tt=context.tooltip;
-  if(!tt||tt.opacity===0){tip.classList.remove('show'); _tipShown=false; return;}
+  if(!tt||tt.opacity===0){tip.classList.remove('show'); _tipShown=false; _tipChart=null; return;}
   var wasShown=tip.classList.contains('show');
   var title=(tt.title||[]).join(' ');
   var body=(tt.body||[]).map(function(b){return b.lines.join(' ');});
@@ -724,14 +724,19 @@ function externalChartTooltip(context){
   var left=rect.left+tt.caretX-tw/2, top=rect.top+tt.caretY-th-12;
   if(left<pad)left=pad; if(left+tw>window.innerWidth-pad)left=window.innerWidth-pad-tw;
   if(top<pad)top=rect.top+tt.caretY+16;
-  // Si ya estaba visible (pasar de un segmento a otro): que se DESLICE; si recién aparece, sin deslizar.
-  tip.style.transition=wasShown
-    ? 'left .2s var(--ease), top .2s var(--ease), opacity .16s var(--ease)'
-    : '';
-  tip.style.left=left+'px'; tip.style.top=top+'px';
+  var sameChart=(_tipChart===context.chart); _tipChart=context.chart;
+  if(sameChart && wasShown){
+    // Mismo gráfico, otro segmento → se desliza
+    tip.style.transition='left .2s var(--ease), top .2s var(--ease), opacity .16s var(--ease)';
+    tip.style.left=left+'px'; tip.style.top=top+'px';
+    if(changed){ tip.style.animation='none'; void tip.offsetWidth; tip.style.animation='ctBump .22s var(--ease)'; }
+  }else{
+    // Primera vez o GRÁFICO DISTINTO → aparece con animación (fade + pop) en el nuevo lugar
+    tip.style.transition='';
+    tip.style.left=left+'px'; tip.style.top=top+'px';
+    tip.style.animation='none'; void tip.offsetWidth; tip.style.animation='ctAppear .24s var(--ease)';
+  }
   tip.classList.add('show'); _tipShown=true;
-  // Pequeño "bump" cuando cambia la info estando ya visible (que el cambio se note)
-  if(wasShown && changed){ tip.style.animation='none'; void tip.offsetWidth; tip.style.animation='ctBump .22s var(--ease)'; }
 }
 function renderDonut(type){
   // Solo categorías con monto positivo (un retiro de meta es ahorro negativo y no se grafica)
