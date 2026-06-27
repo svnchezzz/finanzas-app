@@ -16,6 +16,9 @@ html,body{height:100%}
 /* Sin scroll suave global: en Android WebView pelea con el gesto de subir y
    provoca saltos. Los scrolls suaves que sí queremos los pide el JS a mano. */
 html{scroll-behavior:auto}
+/* Reserva siempre el espacio de la barra de scroll para que el header (engranaje y +) no se mueva
+   al cambiar entre vistas con y sin scroll. */
+html{scrollbar-gutter:stable}
 /* Evitar que el navegador "ancle" el scroll cuando algo arriba cambia de alto
    (gráficos, listas) y te empuje de vuelta hacia abajo. */
 html,body{overflow-anchor:none}
@@ -462,6 +465,11 @@ input[type=date]{color-scheme:dark}
 
 /* Reanimación del panel al cambiar de período/fecha */
 @keyframes dashSwap{from{opacity:.3;transform:translateY(7px)}to{opacity:1;transform:none}}
+/* "Dibujado" de las gráficas: la dona se traza girando (barrido horario), las barras crecen desde abajo.
+   Se revela un canvas ya dibujado (máscara/clip por CSS) → simula que se calcula, sin redibujar el canvas. */
+@property --sweep{syntax:"<angle>";inherits:false;initial-value:0deg}
+@keyframes drawDonut{from{--sweep:0deg}to{--sweep:360deg}}
+@keyframes drawBars{from{clip-path:inset(100% 0 0 0);opacity:.5}to{clip-path:inset(0 0 0 0);opacity:1}}
 @keyframes viewEnter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 
 /* Botón + : rebote al presionar y giro a × al abrir el menú */

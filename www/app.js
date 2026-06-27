@@ -260,16 +260,19 @@ async function init(){
     return;
   }
   const boot=document.getElementById('boot');
-  // Revelamos #app DEBAJO de la pantalla de carga (que sigue opaca y cubre todo):
-  // así los gráficos y tarjetas hacen su animación de entrada sin que se vea "armándose".
+  // Montamos #app debajo de la pantalla de carga (opaca). Al quitarla, RE-DISPARAMOS la
+  // animación de entrada (gráficas dibujándose + conteo desde 0) para que se vea al abrir.
   document.getElementById('app').classList.remove('hidden');
   requestAnimationFrame(function(){
     try{Object.keys(S.charts).forEach(function(k){if(S.charts[k])S.charts[k].resize();});}catch(e){}
-    // Cuando la interfaz ya está montada y asentada, recién retiramos la pantalla de carga.
     setTimeout(function(){
       boot.classList.add('gone');
+      if(S.view==='dashboard'){
+        S._kpiPrev={income:0,expense:0,savings:0,balance:0}; S._donutPrev={};
+        renderDashboard(); // las donas se trazan y los números cuentan, ya visibles
+      }
       setTimeout(function(){boot.style.display='none';},520);
-    },850);
+    },650);
   });
   notifStartup();
 }
@@ -665,6 +668,22 @@ function countUp(key,to){
   animateMoney(el,from,to);
 }
 /* Anima un valor de dinero (con símbolo) de "from" a "to" en un elemento. */
+/* "Dibuja" la gráfica revelándola con clip-path por CSS (la dona crece desde el centro,
+   las barras desde abajo) — simula que se está calculando, sin redibujar el canvas cada frame. */
+function pulseChart(c,kind){
+  if(!c)return;
+  c.style.animation='none'; void c.offsetWidth;
+  if(kind==='bars'){
+    c.style.animation='drawBars .85s var(--ease) both';
+    return;
+  }
+  // Dona: máscara cónica SOLO durante el trazado; al terminar se quita para no dejar costura
+  var m='conic-gradient(from -90deg, #000 var(--sweep,0deg), rgba(0,0,0,0) 0deg)';
+  c.style.webkitMask=m; c.style.mask=m;
+  var done=function(){ c.style.webkitMask=''; c.style.mask=''; c.removeEventListener('animationend',done); };
+  c.addEventListener('animationend',done);
+  c.style.animation='drawDonut .85s var(--ease) both';
+}
 function animateMoney(el,from,to){
   if(!el)return;
   if(Math.round(from)===Math.round(to)){writeMoney(el,to);return;} // sin cambio → no animar
@@ -682,25 +701,19 @@ function renderDonut(type){
   animateMoney(center.querySelector('.dc-val'), S._donutPrev[type]||0, total); S._donutPrev[type]=total;
   const legend=document.querySelector('[data-legend="'+type+'"]'), canvas=document.querySelector('[data-donut="'+type+'"]');
   if(!data.length){if(S.charts[type]){S.charts[type].destroy();S.charts[type]=null;}legend.innerHTML='<li class="empty">'+TXT.sinDatos+'</li>';const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);return;}
-  // Con una sola categoría (100%) el anillo va completo, sin muesca ni separación
+  // Con una sola categoría (100%) el anillo va completo, sin muesca
   const single=data.length<=1;
-  const ds={data:data.map(function(d){return d.amount;}),backgroundColor:data.map(function(d){return d.color;}),borderColor:'#121a2e',borderWidth:single?0:2,hoverOffset:single?0:8,borderRadius:single?0:5,spacing:single?0:2};
-  if(S.charts[type]){
-    // Transición suave: actualizar el anillo existente en vez de recrearlo (las porciones se animan)
-    const ch=S.charts[type];
-    ch.data.labels=data.map(function(d){return d.name;});
-    ch.data.datasets[0]=Object.assign(ch.data.datasets[0],ds);
-    ch.options.plugins.tooltip.callbacks.label=function(c){const pct=total?Math.round(c.parsed/total*100):0;return ' '+c.label+': '+money(c.parsed)+' ('+pct+'%)';};
-    ch.update();
-  }else{
-    S.charts[type]=new Chart(canvas,{
-      type:'doughnut',
-      data:{labels:data.map(function(d){return d.name;}),datasets:[ds]},
-      options:{cutout:'74%',responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){const pct=total?Math.round(c.parsed/total*100):0;return ' '+c.label+': '+money(c.parsed)+' ('+pct+'%)';}}}},
-        animation:{animateRotate:true,animateScale:false,duration:800,easing:'easeOutQuart'}}
-    });
-  }
+  // Versión ligera (sin bordes redondeados ni separación, que era lo pesado al animar)
+  const ds={data:data.map(function(d){return d.amount;}),backgroundColor:data.map(function(d){return d.color;}),borderColor:'#121a2e',borderWidth:single?0:2,hoverOffset:0};
+  // Recrear para que el aro se DIBUJE girando (animateRotate de Chart.js, sin máscara → sin costura)
+  if(S.charts[type])S.charts[type].destroy();
+  S.charts[type]=new Chart(canvas,{
+    type:'doughnut',
+    data:{labels:data.map(function(d){return d.name;}),datasets:[ds]},
+    options:{cutout:'74%',responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){const pct=total?Math.round(c.parsed/total*100):0;return ' '+c.label+': '+money(c.parsed)+' ('+pct+'%)';}}}},
+      animation:{animateRotate:true,animateScale:false,duration:750,easing:'easeOutCubic'}}
+  });
   legend.innerHTML=data.map(function(d,i){const pct=total?Math.round(d.amount/total*100):0;
     return '<li style="animation-delay:'+(i*40)+'ms"><span class="lg-dot" style="background:'+d.color+'"></span><span class="lg-name">'+esc(d.name)+'</span><span class="lg-pct">'+pct+'%</span><span class="lg-amt">'+money(d.amount)+'</span></li>';}).join('');
 }
@@ -718,7 +731,7 @@ function renderTrend(){
       // Morph suave: misma estructura, solo cambian los valores
       S.charts.trend.data.labels=['Ingresos','Gastos','Ahorro'];
       S.charts.trend.data.datasets[0].data=vals;
-      S.charts.trend.update();
+      S.charts.trend.update('none');
     }else{
       if(S.charts.trend)S.charts.trend.destroy();
       S.charts.trend=new Chart(canvas,{
@@ -728,10 +741,11 @@ function renderTrend(){
           categoryPercentage:0.6,barPercentage:0.8,
           plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return ' '+c.label+': '+money(c.parsed.y);}}}},
           scales:{x:{grid:{display:false},border:{display:false}},y:{beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{callback:function(v){return compact(v);}}}},
-          animation:{duration:800,easing:'easeOutQuart'}}
+          animation:false}
       });
       S._trendMode='day';
     }
+    pulseChart(canvas,'bars'); // dibujado por CSS (crece desde abajo)
     return;
   }
 
@@ -762,7 +776,7 @@ function renderTrend(){
     const ch=S.charts.trend;
     ch.data.labels=labels;
     ch.data.datasets[0].data=inc; ch.data.datasets[1].data=exp; ch.data.datasets[2].data=sav;
-    ch.update();
+    ch.update('none'); pulseChart(canvas,'bars');
     return;
   }
   if(S.charts.trend)S.charts.trend.destroy();
@@ -779,8 +793,9 @@ function renderTrend(){
         color:'#8a97b8',
         generateLabels:function(chart){var cols=['#10B981','#F43F5E','#0EA5E9'];return chart.data.datasets.map(function(ds,i){return {text:ds.label,fillStyle:cols[i],strokeStyle:cols[i],lineWidth:0,pointStyle:'circle',fontColor:'#8a97b8',datasetIndex:i,hidden:!chart.isDatasetVisible(i)};});}}},tooltip:{callbacks:{label:function(c){return ' '+c.dataset.label+': '+money(c.parsed.y);}}}},
       scales:{x:{grid:{display:false},border:{display:false},offset:true},y:{beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{callback:function(v){return compact(v);}}}},
-      animation:{duration:800,easing:'easeOutQuart'}}
+      animation:false}
   });
+  pulseChart(canvas,'bars'); // dibujado por CSS (crece desde abajo)
 }
 function compact(v){const a=Math.abs(v);if(a>=1e6)return (v/1e6).toFixed(1)+'M';if(a>=1e3)return Math.round(v/1e3)+'k';return v;}
 function hexToRgba(hex,a){hex=String(hex).replace('#','');return 'rgba('+parseInt(hex.slice(0,2),16)+','+parseInt(hex.slice(2,4),16)+','+parseInt(hex.slice(4,6),16)+','+a+')';}
