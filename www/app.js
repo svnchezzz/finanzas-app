@@ -82,6 +82,17 @@ function moneyHTML(n){
   const v=Math.round(n||0);
   return (v<0?'-':'')+'<span class="cur-sym">'+esc(S.settings.currencySymbol)+'</span>'+nf_().format(Math.abs(v));
 }
+/* Escribe el valor actualizando SOLO nodos de texto (sin re-parsear HTML cada frame).
+   Mucho más barato para la animación de conteo en WebView de celular. */
+function writeMoney(el,n){
+  if(!el._numEl){
+    el.innerHTML='<span class="cur-sym"></span><span class="cur-num"></span>';
+    el._symEl=el.querySelector('.cur-sym'); el._numEl=el.querySelector('.cur-num');
+  }
+  const v=Math.round(n||0);
+  el._symEl.textContent=(v<0?'-':'')+S.settings.currencySymbol;
+  el._numEl.textContent=nf_().format(Math.abs(v));
+}
 function groupDigits(str){const d=String(str).replace(/\D/g,'');if(!d)return '';return new Intl.NumberFormat(S.settings.locale||'es-CO').format(parseInt(d,10));}
 
 /* ── Fechas ── */
@@ -615,7 +626,15 @@ function renderPendChart(){
   const totInc=incP+incV+incC, totPay=payP+payV+payC;
   document.getElementById('pendCaption').textContent=(totInc+totPay)===0?'sin pendientes':(totInc+' ingreso(s) · '+totPay+' pago(s)');
   const canvas=document.getElementById('pendChart');
-  if(S.charts.pend)S.charts.pend.destroy();
+  // Sus datos no dependen del periodo: si ya existe, solo actualizar (no recrear en cada cambio de día/mes)
+  if(S.charts.pend){
+    const ch=S.charts.pend;
+    ch.data.datasets[0].data=[incP,payP];
+    ch.data.datasets[1].data=[incV,payV];
+    ch.data.datasets[2].data=[incC,payC];
+    ch.update('none');
+    return;
+  }
   S.charts.pend=new Chart(canvas,{
     type:'bar',
     data:{labels:['Ingresos','Pagos'],datasets:[
@@ -627,7 +646,7 @@ function renderPendChart(){
         tooltip:{callbacks:{label:function(c){return ' '+c.dataset.label+': '+c.parsed.x;}}}},
       scales:{x:{stacked:true,beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{precision:0,stepSize:1}},
               y:{stacked:true,grid:{display:false},border:{display:false}}},
-      animation:{duration:450,easing:'easeOutQuart'}}
+      animation:{duration:800,easing:'easeOutQuart'}}
   });
 }
 function countOf(list,type){const n=list.filter(function(t){return t.type===type;}).length;return n+' '+(n===1?'movimiento':'movimientos');}
@@ -648,9 +667,9 @@ function countUp(key,to){
 /* Anima un valor de dinero (con símbolo) de "from" a "to" en un elemento. */
 function animateMoney(el,from,to){
   if(!el)return;
-  if(Math.round(from)===Math.round(to)){el.innerHTML=moneyHTML(to);return;} // sin cambio → no animar
-  const dur=550,t0=performance.now();
-  function step(now){const p=Math.min((now-t0)/dur,1),e=1-Math.pow(1-p,3);el.innerHTML=moneyHTML(from+(to-from)*e);if(p<1)requestAnimationFrame(step);}
+  if(Math.round(from)===Math.round(to)){writeMoney(el,to);return;} // sin cambio → no animar
+  const dur=800,t0=performance.now();
+  function step(now){const p=Math.min((now-t0)/dur,1),e=1-Math.pow(1-p,3);writeMoney(el,from+(to-from)*e);if(p<1)requestAnimationFrame(step);}
   requestAnimationFrame(step);
 }
 function renderDonut(type){
@@ -679,7 +698,7 @@ function renderDonut(type){
       data:{labels:data.map(function(d){return d.name;}),datasets:[ds]},
       options:{cutout:'74%',responsive:true,maintainAspectRatio:false,
         plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){const pct=total?Math.round(c.parsed/total*100):0;return ' '+c.label+': '+money(c.parsed)+' ('+pct+'%)';}}}},
-        animation:{animateRotate:true,animateScale:true,duration:500,easing:'easeOutQuart'}}
+        animation:{animateRotate:true,animateScale:false,duration:800,easing:'easeOutQuart'}}
     });
   }
   legend.innerHTML=data.map(function(d,i){const pct=total?Math.round(d.amount/total*100):0;
@@ -709,7 +728,7 @@ function renderTrend(){
           categoryPercentage:0.6,barPercentage:0.8,
           plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return ' '+c.label+': '+money(c.parsed.y);}}}},
           scales:{x:{grid:{display:false},border:{display:false}},y:{beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{callback:function(v){return compact(v);}}}},
-          animation:{duration:450,easing:'easeOutQuart'}}
+          animation:{duration:800,easing:'easeOutQuart'}}
       });
       S._trendMode='day';
     }
@@ -760,7 +779,7 @@ function renderTrend(){
         color:'#8a97b8',
         generateLabels:function(chart){var cols=['#10B981','#F43F5E','#0EA5E9'];return chart.data.datasets.map(function(ds,i){return {text:ds.label,fillStyle:cols[i],strokeStyle:cols[i],lineWidth:0,pointStyle:'circle',fontColor:'#8a97b8',datasetIndex:i,hidden:!chart.isDatasetVisible(i)};});}}},tooltip:{callbacks:{label:function(c){return ' '+c.dataset.label+': '+money(c.parsed.y);}}}},
       scales:{x:{grid:{display:false},border:{display:false},offset:true},y:{beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{callback:function(v){return compact(v);}}}},
-      animation:{duration:450,easing:'easeOutQuart'}}
+      animation:{duration:800,easing:'easeOutQuart'}}
   });
 }
 function compact(v){const a=Math.abs(v);if(a>=1e6)return (v/1e6).toFixed(1)+'M';if(a>=1e3)return Math.round(v/1e3)+'k';return v;}
@@ -1358,9 +1377,11 @@ function saveTx(){
     const idx=S.transactions.findIndex(function(t){return t.id===editId;});
     if(idx<0)return;
     const prev=S.transactions[idx];
-    S.transactions[idx]=Object.assign({},prev,tx,{id:editId});
+    const merged=Object.assign({},prev,tx,{id:editId});
+    S.transactions[idx]=merged;
     S.ref=parseYMD(tx.date); renderAll();
-    gs('updateTransaction',editId,tx).then(function(){toast('Movimiento actualizado','ok');
+    gs('updateTransaction',editId,merged).then(function(){toast('Movimiento actualizado','ok');
+      syncGoalOnEdit_(prev,merged);
       if(window.Notif){ if(tx.type==='Expense')evalBudget(tx.category,true); if(prev&&prev.category&&prev.category!==tx.category)evalBudget(prev.category,true); scheduleDailyReminders(); }})
       .catch(function(){S.transactions[idx]=prev;renderAll();toast('No se pudo guardar','err');});
   }else{
@@ -1370,6 +1391,28 @@ function saveTx(){
       .catch(function(){S.transactions=S.transactions.filter(function(t){return t.id!==temp.id;});renderAll();toast(TXT.errGuardar,'err');});
   }
 }
+/* Encuentra la meta vinculada a un movimiento de ahorro: por _goalId (misma sesión)
+   o por nombre de categoría (las aportaciones a meta usan el nombre de la meta). */
+function goalForTx_(t){
+  if(!t||t.type!=='Savings')return null;
+  if(t._goalId){const g=S.goals.find(function(x){return x.id===t._goalId;});if(g)return g;}
+  return S.goals.find(function(g){return g.name===t.category;})||null;
+}
+/* Ajusta lo ahorrado de una meta (local + backend) cuando se edita/elimina su movimiento. */
+function adjustGoalSaved_(goal,delta){
+  if(!goal||!delta)return;
+  goal.saved=Math.max(0,(goal.saved||0)+delta);
+  if(S.view==='goals')renderGoals();
+  gs('contributeGoal',goal.id,delta).then(function(res){if(res&&typeof res.saved==='number'){goal.saved=res.saved;if(S.view==='goals')renderGoals();}}).catch(function(){});
+}
+/* Reconcilia la meta cuando se EDITA un movimiento (cambia monto, tipo o categoría). */
+function syncGoalOnEdit_(prev,now){
+  const oldGoal=goalForTx_(prev), oldC=oldGoal?prev.amount:0;
+  const newGoal=goalForTx_(now),  newC=newGoal?now.amount:0;
+  if(oldGoal&&oldGoal===newGoal){adjustGoalSaved_(oldGoal,newC-oldC);return;}
+  if(oldGoal&&oldC)adjustGoalSaved_(oldGoal,-oldC);
+  if(newGoal&&newC)adjustGoalSaved_(newGoal,newC);
+}
 function removeTx(id){
   const tx=S.transactions.find(function(t){return t.id===id;}); if(!tx)return;
   confirmAction('Eliminar movimiento','Vas a eliminar "'+tx.category+'" por '+money(tx.amount)+'. Esta acción no se puede deshacer.','Eliminar',function(){
@@ -1377,7 +1420,7 @@ function removeTx(id){
     animateRemove(rowEl('historyList',id,'.hist-row'),function(){
     const removed=S.transactions[idx]; S.transactions.splice(idx,1); renderAll();
     if(window.Notif){ if(tx.type==='Expense')evalBudget(tx.category,true); scheduleDailyReminders(); }
-    gs('deleteTransaction',id).then(function(){toast(TXT.eliminado,'ok');})
+    gs('deleteTransaction',id).then(function(){toast(TXT.eliminado,'ok');const g=goalForTx_(removed);if(g)adjustGoalSaved_(g,-removed.amount);})
       .catch(function(){S.transactions.splice(idx,0,removed);renderAll();toast(TXT.errBorrar,'err');});
     });
   });

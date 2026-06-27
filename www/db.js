@@ -54,7 +54,7 @@ function num_(v){ return Number(v)||0; }
    haya sido creado con o sin internet. */
 function mapTx_(r){ return {
   id:String(r.client_id || r.id), timestamp:r.created_at, date:r.date, type:r.type, category:r.category,
-  amount:num_(r.amount), color:r.color||'#64748B', source:r.source||'', note:r.note||'' }; }
+  amount:num_(r.amount), color:r.color||'#64748B', source:r.source||'', note:r.note||'', _goalId:(r.goal_id!=null?String(r.goal_id):null) }; }
 
 function mapPending_(r){ return {
   id:String(r.id), dueDate:r.due_date||'', kind:r.kind, category:r.category||'', amount:num_(r.amount),
@@ -170,7 +170,7 @@ function snapshotState_(){
 /* Construcción de datos de un movimiento para el servidor */
 function buildTxPayload_(cid, tx){
   return { client_id:cid, date:tx.date||today_(), type:tx.type, category:tx.category, amount:num_(tx.amount),
-    color:tx.color||'#64748B', source:normSource_(tx.source), note:tx.note||'' };
+    color:tx.color||'#64748B', source:normSource_(tx.source), note:tx.note||'', goal_id:(tx._goalId!=null?String(tx._goalId):null) };
 }
 async function txUpsert_(cid, tx){
   const { data, error } = await netCall_(sb.from('transactions')
@@ -364,7 +364,7 @@ const API = {
   async addTransaction(tx){
     const cid = tx.client_id || uuid_();
     const local = { id:cid, timestamp:new Date().toISOString(), date:tx.date||today_(), type:tx.type,
-      category:tx.category, amount:num_(tx.amount), color:tx.color||'#64748B', source:tx.source||'', note:tx.note||'' };
+      category:tx.category, amount:num_(tx.amount), color:tx.color||'#64748B', source:tx.source||'', note:tx.note||'', _goalId:tx._goalId||null };
     if (isOffline_()){ enqueue_({op:'add', client_id:cid, payload:tx}); snapSoon_(); return local; }
     try{
       const saved = await txUpsert_(cid, tx); snapSoon_(); return mapTx_(saved);
