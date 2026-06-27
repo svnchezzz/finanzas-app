@@ -155,7 +155,7 @@ function buildCal(){
   pop.querySelectorAll('.cal-day').forEach(function(c){c.onclick=function(e){e.stopPropagation();
     S.ref=parseYMD(c.dataset.d); S.period='day';
     const db=document.querySelector('#periodSeg button[data-period="day"]'); if(db)setSeg('periodSeg',db);
-    closeCal(); renderAll(); pulseDash();};});
+    closeCal(); deferRender();};});
   const tb=pop.querySelector('.cal-today-btn');
   if(tb)tb.onclick=function(e){e.stopPropagation();S.ref=new Date();closeCal();renderAll();};
 }
@@ -189,7 +189,19 @@ function savingsNet(list){return sumType(list,'Savings')-fromSavingsSum(list);}
 function globalDisponible(){const all=allMovements();return sumType(all,'Income')-sumType(all,'Expense');}
 
 /* ── Arranque (lo llama db.js después del login) ── */
+// Hace que la WebView ocupe TODA la pantalla (detrás de la barra de estado).
+// El contenido respeta las barras vía env(safe-area-inset-*) en el CSS.
+async function setupFullscreen(){
+  try{
+    if(!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()))return;
+    const SB=window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar;
+    if(!SB)return;
+    if(SB.setOverlaysWebView)await SB.setOverlaysWebView({overlay:true});
+    if(SB.setStyle)await SB.setStyle({style:'DARK'}); // fondo oscuro → iconos claros
+  }catch(e){}
+}
 async function init(){
+  setupFullscreen();
   try{
     const data=await gs('getInitialData');
     S.transactions=data.transactions||[];
@@ -207,18 +219,25 @@ async function init(){
     return;
   }
   const boot=document.getElementById('boot');
-  boot.classList.add('gone'); setTimeout(function(){boot.style.display='none';},520);
+  // Revelamos #app DEBAJO de la pantalla de carga (que sigue opaca y cubre todo):
+  // así los gráficos y tarjetas hacen su animación de entrada sin que se vea "armándose".
   document.getElementById('app').classList.remove('hidden');
-  // Los gráficos se crean mientras #app está oculto; al mostrarlo, recalcular tamaño.
-  requestAnimationFrame(function(){try{Object.keys(S.charts).forEach(function(k){if(S.charts[k])S.charts[k].resize();});}catch(e){}});
+  requestAnimationFrame(function(){
+    try{Object.keys(S.charts).forEach(function(k){if(S.charts[k])S.charts[k].resize();});}catch(e){}
+    // Cuando la interfaz ya está montada y asentada, recién retiramos la pantalla de carga.
+    setTimeout(function(){
+      boot.classList.add('gone');
+      setTimeout(function(){boot.style.display='none';},520);
+    },850);
+  });
   notifStartup();
 }
 
 /* ── Conexiones de UI ── */
 function wireUI(){
-  document.getElementById('periodSeg').addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;setSeg('periodSeg',b);S.period=b.dataset.period;renderAll();pulseDash();});
-  document.getElementById('prevPeriod').onclick=function(){S.ref=shiftRef(S.ref,S.period,-1);renderAll();pulseDash();};
-  document.getElementById('nextPeriod').onclick=function(){S.ref=shiftRef(S.ref,S.period,1);renderAll();pulseDash();};
+  document.getElementById('periodSeg').addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;setSeg('periodSeg',b);S.period=b.dataset.period;deferRender();});
+  document.getElementById('prevPeriod').onclick=function(){S.ref=shiftRef(S.ref,S.period,-1);deferRender();};
+  document.getElementById('nextPeriod').onclick=function(){S.ref=shiftRef(S.ref,S.period,1);deferRender();};
   document.getElementById('periodLabel').onclick=function(e){e.stopPropagation();toggleCal();};
   document.querySelector('.viewtabs').addEventListener('click',function(e){const b=e.target.closest('.vtab');if(!b)return;switchView(b.dataset.view,b);});
   document.getElementById('historySeg').addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;setSeg('historySeg',b);S.histGrain=b.dataset.grain;renderHistory();});
@@ -407,7 +426,9 @@ function moveSegInk(seg){
   const btn=seg.querySelector('button.active'); if(!btn||!btn.offsetWidth)return;
   let ink=seg.querySelector('.seg-ink');
   if(!ink){ink=document.createElement('span');ink.className='seg-ink';seg.appendChild(ink);}
-  ink.style.transform='translateX('+btn.offsetLeft+'px)'; ink.style.width=btn.offsetWidth+'px';
+  // Posición y tamaño solo con transform (compositado por GPU) → desliza fluido.
+  // El ancho base del .seg-ink es 100px; lo escalamos al ancho real del botón.
+  ink.style.transform='translateX('+btn.offsetLeft+'px) scaleX('+(btn.offsetWidth/100)+')';
   seg.classList.add('ink-ready');
 }
 function positionAllSegInks(){document.querySelectorAll('.segmented').forEach(function(s){moveSegInk(s);});}
@@ -428,6 +449,11 @@ function animateRemove(el, then){
 function rowEl(containerId,id,itemSel){
   const b=document.querySelector('#'+containerId+' [data-id="'+id+'"]');
   return b?b.closest(itemSel):null;
+}
+/* Deja que la transición del slider (Día/Semana/Mes/Año) pinte primero y luego
+   ejecuta el render pesado del panel en el siguiente frame, para que no se trabe. */
+function deferRender(){
+  requestAnimationFrame(function(){requestAnimationFrame(function(){renderAll();pulseDash();});});
 }
 /* Reanima las tarjetas del panel al cambiar de período/fecha */
 function pulseDash(){

@@ -281,7 +281,7 @@
           <div id="txNewGoalRow" class="hidden" style="margin-top:10px">
             <input type="text" id="txNewGoalName" class="full-input" placeholder="Nombre de la meta (ej. Fondo de emergencia)" maxlength="40" style="margin-bottom:10px">
             <div class="amount-field"><span class="cur" id="txNewGoalCur">$</span>
-              <input type="text" inputmode="numeric" id="txNewGoalTarget" placeholder="Objetivo (ej. 5.000.000)" autocomplete="off"></div>
+              <input type="text" inputmode="numeric" pattern="[0-9]*" id="txNewGoalTarget" placeholder="Objetivo (ej. 5.000.000)" autocomplete="off"></div>
           </div>
         </div>
 
@@ -289,7 +289,7 @@
 
         <label class="field-label">Monto</label>
         <div class="amount-field"><span class="cur" id="curSign">$</span>
-          <input type="text" inputmode="numeric" id="amountInput" placeholder="0" autocomplete="off"></div>
+          <input type="text" inputmode="numeric" pattern="[0-9]*" id="amountInput" placeholder="0" autocomplete="off"></div>
 
         <div id="txColorRow" class="hidden">
           <label class="field-label">Color de la nueva etiqueta</label>
@@ -357,7 +357,7 @@
 
         <label class="field-label">Monto</label>
         <div class="amount-field"><span class="cur" id="pendCur">$</span>
-          <input type="text" inputmode="numeric" id="pendAmount" placeholder="0" autocomplete="off"></div>
+          <input type="text" inputmode="numeric" pattern="[0-9]*" id="pendAmount" placeholder="0" autocomplete="off"></div>
 
         <div class="two-col">
           <div><label class="field-label">Fecha acordada</label><input type="date" id="pendDate"></div>
@@ -434,7 +434,7 @@
 
         <label class="field-label">Monto</label>
         <div class="amount-field"><span class="cur" id="recurCur">$</span>
-          <input type="text" inputmode="numeric" id="recurAmount" placeholder="0" autocomplete="off"></div>
+          <input type="text" inputmode="numeric" pattern="[0-9]*" id="recurAmount" placeholder="0" autocomplete="off"></div>
 
         <div class="two-col">
           <div><label class="field-label">Día del mes</label><input type="number" id="recurDay" min="1" max="31" value="1"></div>
@@ -460,10 +460,10 @@
 
         <div class="two-col">
           <div><label class="field-label">Objetivo</label>
-            <div class="amount-field"><span class="cur" id="goalCur">$</span><input type="text" inputmode="numeric" id="goalTarget" placeholder="0" autocomplete="off"></div>
+            <div class="amount-field"><span class="cur" id="goalCur">$</span><input type="text" inputmode="numeric" pattern="[0-9]*" id="goalTarget" placeholder="0" autocomplete="off"></div>
           </div>
           <div><label class="field-label">Ya tienes ahorrado</label>
-            <div class="amount-field"><span class="cur" id="goalCur2">$</span><input type="text" inputmode="numeric" id="goalSaved" placeholder="0" autocomplete="off"></div>
+            <div class="amount-field"><span class="cur" id="goalCur2">$</span><input type="text" inputmode="numeric" pattern="[0-9]*" id="goalSaved" placeholder="0" autocomplete="off"></div>
           </div>
         </div>
 

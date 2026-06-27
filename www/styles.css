@@ -26,11 +26,20 @@ body{font-family:var(--sans);color:var(--txt);
 .hidden{display:none !important}
 .muted{color:var(--muted);font-size:13px}
 
-#boot{position:fixed;inset:0;z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:var(--bg);transition:opacity .5s var(--ease)}
+/* Pantalla de carga: cubre TODA la pantalla (incl. notch/safe-areas), loader centrado en cualquier tamaño */
+#boot{position:fixed;inset:0;z-index:200;width:100%;height:100vh;height:100dvh;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:calc(env(safe-area-inset-top,0px) + 20px) calc(env(safe-area-inset-right,0px) + 20px) calc(env(safe-area-inset-bottom,0px) + 20px) calc(env(safe-area-inset-left,0px) + 20px);
+  gap:clamp(14px,2.6vh,20px);
+  background:radial-gradient(1200px 600px at 80% -10%, rgba(79,70,229,.18), transparent 60%),
+    radial-gradient(900px 500px at -10% 10%, rgba(14,165,233,.12), transparent 55%),var(--bg);
+  overflow:hidden;transition:opacity .5s var(--ease)}
+/* El esqueleto descuadraba la carga (se amontonaba arriba y dejaba el resto vacío). Loader centrado y limpio. */
+.boot-skel{display:none !important}
 #boot.gone{opacity:0;pointer-events:none}
-.boot-logo{font-family:var(--display);font-size:26px;font-weight:700;letter-spacing:-.5px;display:flex;align-items:center;gap:12px}
-.boot-logo .dot{width:14px;height:14px;border-radius:50%;background:linear-gradient(135deg,var(--primary2),var(--savings));box-shadow:0 0 24px var(--primary-glow);animation:pulse 1.4s var(--ease) infinite}
-.boot-bar{width:180px;height:4px;border-radius:99px;background:var(--surface2);overflow:hidden}
+.boot-logo{font-family:var(--display);font-size:clamp(20px,6vw,26px);font-weight:700;letter-spacing:-.5px;display:flex;align-items:center;gap:12px;text-align:center}
+.boot-logo .dot{width:14px;height:14px;flex:none;border-radius:50%;background:linear-gradient(135deg,var(--primary2),var(--savings));box-shadow:0 0 24px var(--primary-glow);animation:pulse 1.4s var(--ease) infinite}
+.boot-bar{width:min(180px,60vw);height:4px;border-radius:99px;background:var(--surface2);overflow:hidden}
 .boot-bar span{display:block;height:100%;width:40%;border-radius:99px;background:linear-gradient(90deg,var(--primary2),var(--savings));animation:slide 1.1s var(--ease) infinite}
 .boot-sub{color:var(--faint);font-size:13px}
 @keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.35);opacity:.6}}
@@ -80,7 +89,7 @@ body{font-family:var(--sans);color:var(--txt);
 .segmented button{position:relative;z-index:1;border:0;background:transparent;color:var(--muted);font-family:var(--sans);font-weight:600;font-size:13px;padding:7px 14px;border-radius:9px;cursor:pointer;transition:color .25s var(--ease)}
 .segmented button.active{color:#fff}
 /* relleno deslizante (recuadro que se mueve entre opciones) */
-.seg-ink{position:absolute;top:4px;bottom:4px;left:0;width:0;z-index:0;border-radius:9px;background:linear-gradient(135deg,var(--primary),var(--primary2));box-shadow:0 6px 16px -6px var(--primary-glow);pointer-events:none;transform:translateX(0);transition:transform .22s var(--ease-soft),width .22s var(--ease-soft);will-change:transform,width}
+.seg-ink{position:absolute;top:4px;bottom:4px;left:0;width:100px;z-index:0;border-radius:9px;background:linear-gradient(135deg,var(--primary),var(--primary2));box-shadow:0 6px 16px -6px var(--primary-glow);pointer-events:none;transform:translateX(0) scaleX(0);transform-origin:left center;transition:transform .24s var(--ease-soft);will-change:transform}
 /* respaldo: si aún no hay ink medido, resaltar el botón activo */
 .segmented:not(.ink-ready) button.active{background:linear-gradient(135deg,var(--primary),var(--primary2));box-shadow:0 6px 16px -6px var(--primary-glow)}
 .segmented button:not(.active):hover{color:var(--txt)}
@@ -416,10 +425,10 @@ input[type=date]{color-scheme:dark}
 .skel{position:relative;overflow:hidden;background:var(--surface2);border-radius:10px}
 .skel::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent);animation:shimmer 1.25s infinite}
 @keyframes shimmer{100%{transform:translateX(100%)}}
-.boot-skel{width:min(1180px,92vw);display:flex;flex-direction:column;gap:14px;margin-top:6px}
+.boot-skel{width:min(1180px,92vw);display:flex;flex-direction:column;gap:14px;margin-top:14px}
 .boot-skel .bs-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
-.boot-skel .bs-kpi{height:90px;border-radius:var(--radius)}
-.boot-skel .bs-card{height:230px;border-radius:var(--radius)}
+.boot-skel .bs-kpi{height:84px;border-radius:var(--radius)}
+.boot-skel .bs-card{height:200px;border-radius:var(--radius)}
 .boot-skel .bs-two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media(max-width:680px){.boot-skel .bs-row{grid-template-columns:1fr 1fr}.boot-skel .bs-two{grid-template-columns:1fr}}
 
