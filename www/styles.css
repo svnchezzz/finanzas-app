@@ -465,10 +465,21 @@ input[type=date]{color-scheme:dark}
 
 /* Reanimación del panel al cambiar de período/fecha */
 @keyframes dashSwap{from{opacity:.3;transform:translateY(7px)}to{opacity:1;transform:none}}
-/* Entrada de las gráficas 100% por GPU (solo opacity + transform → sin repintado por frame, sin tirones).
+/* Entrada de las gráficas 100% por GPU (solo opacity + transform → fluido, sin tirones).
    La dona aparece girando/escalando (insinúa el armado) y las barras suben. */
 @keyframes chartPopDonut{from{opacity:0;transform:scale(.72) rotate(-35deg)}to{opacity:1;transform:none}}
 @keyframes chartPopBars{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:none}}
+
+/* Tooltip HTML de las gráficas: superpuesto, fondo opaco (no se mezcla con lo de atrás), legible. */
+.chart-tip{position:fixed;z-index:10001;pointer-events:none;left:0;top:0;
+  background:#0e1424;border:1px solid var(--line2);border-radius:12px;padding:10px 12px;
+  box-shadow:0 16px 44px -10px rgba(0,0,0,.75);color:var(--txt);font-family:var(--sans);
+  font-size:12.5px;max-width:74vw;white-space:nowrap;
+  opacity:0;transform:translateY(5px) scale(.96);transition:opacity .16s var(--ease),transform .16s var(--ease)}
+.chart-tip.show{opacity:1;transform:none}
+.chart-tip .ct-title{font-family:var(--display);font-weight:700;font-size:13px;color:#eef2ff;margin-bottom:5px}
+.chart-tip .ct-row{display:flex;align-items:center;gap:7px;line-height:1.55;color:#cbd5e1}
+.chart-tip .ct-dot{width:9px;height:9px;border-radius:50%;flex:none}
 @keyframes viewEnter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 
 /* Botón + : rebote al presionar y giro a × al abrir el menú */

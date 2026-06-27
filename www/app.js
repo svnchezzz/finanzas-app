@@ -245,14 +245,9 @@ async function init(){
     S.goals=data.goals||[];
     S.palettes=data.palettes||PALETTES_FALLBACK;     // paletas por tipo
     if(window.Chart){Chart.defaults.color='#8a97b8';Chart.defaults.font.family="'Inter',sans-serif";Chart.defaults.font.size=12;
-      // Tooltips con estilo propio del tema (redondeados, con punto de color)
-      var tt=Chart.defaults.plugins.tooltip;
-      tt.backgroundColor='rgba(14,20,36,.97)';tt.titleColor='#eef2ff';tt.bodyColor='#cbd5e1';
-      tt.borderColor='rgba(255,255,255,.12)';tt.borderWidth=1;tt.cornerRadius=12;
-      tt.padding=12;tt.boxPadding=6;tt.usePointStyle=true;tt.caretSize=6;
-      tt.titleFont={family:"'Space Grotesk','Inter',sans-serif",weight:'700',size:13};
-      tt.bodyFont={family:"'Inter',sans-serif",size:12.5};
-      tt.callbacks.labelPointStyle=function(){return {pointStyle:'circle',rotation:0};};
+      // Tooltip como HTML superpuesto (fondo opaco, z-index alto): legible, no se mezcla ni se recorta.
+      Chart.defaults.plugins.tooltip.enabled=false;
+      Chart.defaults.plugins.tooltip.external=externalChartTooltip;
     }
     wireUI(); renderAll();
   }catch(e){
@@ -260,19 +255,18 @@ async function init(){
     return;
   }
   const boot=document.getElementById('boot');
-  // Montamos #app debajo de la pantalla de carga (opaca). Al quitarla, RE-DISPARAMOS la
-  // animación de entrada (gráficas dibujándose + conteo desde 0) para que se vea al abrir.
   document.getElementById('app').classList.remove('hidden');
   requestAnimationFrame(function(){
     try{Object.keys(S.charts).forEach(function(k){if(S.charts[k])S.charts[k].resize();});}catch(e){}
     setTimeout(function(){
       boot.classList.add('gone');
+      // Re-disparamos la animación de entrada (gráficas + conteo) ya visible al abrir
       if(S.view==='dashboard'){
         S._kpiPrev={income:0,expense:0,savings:0,balance:0}; S._donutPrev={};
-        renderDashboard(); // las donas se trazan y los números cuentan, ya visibles
+        renderDashboard();
       }
       setTimeout(function(){boot.style.display='none';},520);
-    },650);
+    },600);
   });
   notifStartup();
 }
@@ -667,21 +661,50 @@ function countUp(key,to){
   }
   animateMoney(el,from,to);
 }
-/* Anima un valor de dinero (con símbolo) de "from" a "to" en un elemento. */
-/* "Dibuja" la gráfica revelándola con clip-path por CSS (la dona crece desde el centro,
-   las barras desde abajo) — simula que se está calculando, sin redibujar el canvas cada frame. */
+/* Conteo del valor (texto, barato). */
+function animateMoney(el,from,to){
+  if(!el)return;
+  if(Math.round(from)===Math.round(to)){writeMoney(el,to);return;}
+  const dur=800,t0=performance.now();
+  function step(now){const p=Math.min((now-t0)/dur,1),e=1-Math.pow(1-p,3);writeMoney(el,from+(to-from)*e);if(p<1)requestAnimationFrame(step);}
+  requestAnimationFrame(step);
+}
+/* Animación de entrada de las gráficas: 100% GPU (opacity + transform), escalonada. Fluida. */
 function pulseChart(c,kind,seq){
   if(!c)return;
   c.style.animation='none'; void c.offsetWidth;
   var delay=((seq||0)*160)+'ms';
   c.style.animation=(kind==='bars'?'chartPopBars':'chartPopDonut')+' .7s var(--ease) '+delay+' both';
 }
-function animateMoney(el,from,to){
-  if(!el)return;
-  if(Math.round(from)===Math.round(to)){writeMoney(el,to);return;} // sin cambio → no animar
-  const dur=800,t0=performance.now();
-  function step(now){const p=Math.min((now-t0)/dur,1),e=1-Math.pow(1-p,3);writeMoney(el,from+(to-from)*e);if(p<1)requestAnimationFrame(step);}
-  requestAnimationFrame(step);
+/* Tooltip HTML superpuesto para las gráficas: fondo opaco, por encima de todo (no se mezcla),
+   y con una animación suave de aparición (la única animación de las gráficas). */
+function externalChartTooltip(context){
+  var tip=document.getElementById('chartTip');
+  if(!tip){tip=document.createElement('div');tip.id='chartTip';tip.className='chart-tip';document.body.appendChild(tip);}
+  var tt=context.tooltip;
+  if(!tt||tt.opacity===0){tip.classList.remove('show');return;}
+  var wasShown=tip.classList.contains('show');
+  var title=(tt.title||[]).join(' ');
+  var body=(tt.body||[]).map(function(b){return b.lines.join(' ');});
+  var colors=tt.labelColors||[];
+  var html=title?('<div class="ct-title">'+esc(title)+'</div>'):'';
+  body.forEach(function(line,i){
+    var bg=colors[i]&&colors[i].backgroundColor;
+    var dot=(typeof bg==='string')?('<span class="ct-dot" style="background:'+bg+'"></span>'):'';
+    html+='<div class="ct-row">'+dot+'<span>'+esc(line.trim())+'</span></div>';
+  });
+  tip.innerHTML=html;
+  var rect=context.chart.canvas.getBoundingClientRect();
+  var tw=tip.offsetWidth, th=tip.offsetHeight, pad=8;
+  var left=rect.left+tt.caretX-tw/2, top=rect.top+tt.caretY-th-12;
+  if(left<pad)left=pad; if(left+tw>window.innerWidth-pad)left=window.innerWidth-pad-tw;
+  if(top<pad)top=rect.top+tt.caretY+16;
+  // Si ya estaba visible (pasar de un segmento a otro): que se DESLICE; si recién aparece, sin deslizar.
+  tip.style.transition=wasShown
+    ? 'left .2s var(--ease), top .2s var(--ease), opacity .16s var(--ease)'
+    : '';
+  tip.style.left=left+'px'; tip.style.top=top+'px';
+  tip.classList.add('show');
 }
 function renderDonut(type){
   // Solo categorías con monto positivo (un retiro de meta es ahorro negativo y no se grafica)
