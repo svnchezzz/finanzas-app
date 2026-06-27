@@ -273,6 +273,9 @@ async function init(){
 
 /* ── Conexiones de UI ── */
 function wireUI(){
+  // Tooltip de gráficas: cerrar al hacer scroll y al tocar fuera/otra gráfica (captura = corre primero)
+  window.addEventListener('scroll',onScrollDismissTip,true);
+  document.addEventListener('pointerdown',onPointerDownDismissTip,true);
   document.getElementById('periodSeg').addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;setSeg('periodSeg',b);S.period=b.dataset.period;deferRender();});
   document.getElementById('prevPeriod').onclick=function(){S.ref=shiftRef(S.ref,S.period,-1);deferRender();};
   document.getElementById('nextPeriod').onclick=function(){S.ref=shiftRef(S.ref,S.period,1);deferRender();};
@@ -676,13 +679,34 @@ function pulseChart(c,kind,seq){
   var delay=((seq||0)*160)+'ms';
   c.style.animation=(kind==='bars'?'chartPopBars':'chartPopDonut')+' .7s var(--ease) '+delay+' both';
 }
+var _tipShown=false;
+/* Oculta el tooltip y limpia el estado de tooltip de las gráficas (excepto la indicada). */
+function clearChartTipState(exceptCanvas){
+  Object.keys(S.charts||{}).forEach(function(k){
+    var ch=S.charts[k]; if(!ch||ch.canvas===exceptCanvas)return;
+    try{ ch.setActiveElements([]); if(ch.tooltip)ch.tooltip.setActiveElements([],{x:0,y:0}); }catch(e){}
+  });
+}
+function hideChartTip(){
+  var tip=document.getElementById('chartTip'); if(tip)tip.classList.remove('show'); _tipShown=false;
+}
+/* Cierra el tooltip al hacer scroll. */
+function onScrollDismissTip(){ if(_tipShown){hideChartTip(); clearChartTipState(null);} }
+/* Al tocar otra gráfica, limpia el estado de las demás para que no peleen por el tooltip;
+   al tocar fuera de cualquier gráfica, cierra el tooltip. */
+function onPointerDownDismissTip(e){
+  if(!_tipShown)return;
+  var onChart = e.target && e.target.tagName==='CANVAS';
+  clearChartTipState(onChart?e.target:null);
+  if(!onChart)hideChartTip();
+}
 /* Tooltip HTML superpuesto para las gráficas: fondo opaco, por encima de todo (no se mezcla),
    y con una animación suave de aparición (la única animación de las gráficas). */
 function externalChartTooltip(context){
   var tip=document.getElementById('chartTip');
   if(!tip){tip=document.createElement('div');tip.id='chartTip';tip.className='chart-tip';document.body.appendChild(tip);}
   var tt=context.tooltip;
-  if(!tt||tt.opacity===0){tip.classList.remove('show');return;}
+  if(!tt||tt.opacity===0){tip.classList.remove('show'); _tipShown=false; return;}
   var wasShown=tip.classList.contains('show');
   var title=(tt.title||[]).join(' ');
   var body=(tt.body||[]).map(function(b){return b.lines.join(' ');});
@@ -693,7 +717,8 @@ function externalChartTooltip(context){
     var dot=(typeof bg==='string')?('<span class="ct-dot" style="background:'+bg+'"></span>'):'';
     html+='<div class="ct-row">'+dot+'<span>'+esc(line.trim())+'</span></div>';
   });
-  tip.innerHTML=html;
+  var changed=(tip._html!==html);
+  tip.innerHTML=html; tip._html=html;
   var rect=context.chart.canvas.getBoundingClientRect();
   var tw=tip.offsetWidth, th=tip.offsetHeight, pad=8;
   var left=rect.left+tt.caretX-tw/2, top=rect.top+tt.caretY-th-12;
@@ -704,7 +729,9 @@ function externalChartTooltip(context){
     ? 'left .2s var(--ease), top .2s var(--ease), opacity .16s var(--ease)'
     : '';
   tip.style.left=left+'px'; tip.style.top=top+'px';
-  tip.classList.add('show');
+  tip.classList.add('show'); _tipShown=true;
+  // Pequeño "bump" cuando cambia la info estando ya visible (que el cambio se note)
+  if(wasShown && changed){ tip.style.animation='none'; void tip.offsetWidth; tip.style.animation='ctBump .22s var(--ease)'; }
 }
 function renderDonut(type){
   // Solo categorías con monto positivo (un retiro de meta es ahorro negativo y no se grafica)

@@ -480,6 +480,7 @@ input[type=date]{color-scheme:dark}
 .chart-tip .ct-title{font-family:var(--display);font-weight:700;font-size:13px;color:#eef2ff;margin-bottom:5px}
 .chart-tip .ct-row{display:flex;align-items:center;gap:7px;line-height:1.55;color:#cbd5e1}
 .chart-tip .ct-dot{width:9px;height:9px;border-radius:50%;flex:none}
+@keyframes ctBump{0%{transform:scale(.9)}60%{transform:scale(1.04)}100%{transform:scale(1)}}
 @keyframes viewEnter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 
 /* Botón + : rebote al presionar y giro a × al abrir el menú */
