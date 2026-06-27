@@ -66,17 +66,21 @@ function capFirst(s){return s.charAt(0).toUpperCase()+s.slice(1);}
 function paletteFor(type){return (S.palettes&&S.palettes[type])||PALETTES_FALLBACK[type]||PALETTES_FALLBACK.Expense;}
 
 /* ── Formato ── */
+/* Formateador de números cacheado (crear Intl.NumberFormat en cada frame era lo que trababa la animación) */
+var _nfCache={};
+function nf_(){
+  const loc=S.settings.locale||'es-CO', dec=S.settings.decimals||0, key=loc+'|'+dec;
+  return _nfCache[key]||(_nfCache[key]=new Intl.NumberFormat(loc,{maximumFractionDigits:dec}));
+}
 function money(n){
   const v=Math.round(n||0);
-  const nf=new Intl.NumberFormat(S.settings.locale||'es-CO',{maximumFractionDigits:S.settings.decimals||0});
-  return (v<0?'-':'')+S.settings.currencySymbol+' '+nf.format(Math.abs(v));
+  return (v<0?'-':'')+S.settings.currencySymbol+' '+nf_().format(Math.abs(v));
 }
 /* Versión con el símbolo de moneda más pequeño y atenuado (look fintech).
    Solo para sitios donde escribimos HTML (KPIs, centro de donas). */
 function moneyHTML(n){
   const v=Math.round(n||0);
-  const nf=new Intl.NumberFormat(S.settings.locale||'es-CO',{maximumFractionDigits:S.settings.decimals||0});
-  return (v<0?'-':'')+'<span class="cur-sym">'+esc(S.settings.currencySymbol)+'</span>'+nf.format(Math.abs(v));
+  return (v<0?'-':'')+'<span class="cur-sym">'+esc(S.settings.currencySymbol)+'</span>'+nf_().format(Math.abs(v));
 }
 function groupDigits(str){const d=String(str).replace(/\D/g,'');if(!d)return '';return new Intl.NumberFormat(S.settings.locale||'es-CO').format(parseInt(d,10));}
 
@@ -479,7 +483,9 @@ function rowEl(containerId,id,itemSel){
 /* Deja que la transición del slider (Día/Semana/Mes/Año) pinte primero y luego
    ejecuta el render pesado del panel en el siguiente frame, para que no se trabe. */
 function deferRender(){
-  requestAnimationFrame(function(){requestAnimationFrame(function(){renderAll();pulseDash();});});
+  // Sin pulseDash: el conteo de los KPIs y el morph de las gráficas ya hacen la transición.
+  // Reanimar los contenedores encima trababa el canvas (compositing doble).
+  requestAnimationFrame(function(){requestAnimationFrame(function(){renderAll();});});
 }
 /* Reanima las tarjetas del panel al cambiar de período/fecha */
 function pulseDash(){
@@ -621,7 +627,7 @@ function renderPendChart(){
         tooltip:{callbacks:{label:function(c){return ' '+c.dataset.label+': '+c.parsed.x;}}}},
       scales:{x:{stacked:true,beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{precision:0,stepSize:1}},
               y:{stacked:true,grid:{display:false},border:{display:false}}},
-      animation:{duration:600,easing:'easeOutQuart'}}
+      animation:{duration:450,easing:'easeOutQuart'}}
   });
 }
 function countOf(list,type){const n=list.filter(function(t){return t.type===type;}).length;return n+' '+(n===1?'movimiento':'movimientos');}
@@ -642,7 +648,8 @@ function countUp(key,to){
 /* Anima un valor de dinero (con símbolo) de "from" a "to" en un elemento. */
 function animateMoney(el,from,to){
   if(!el)return;
-  const dur=600,t0=performance.now();
+  if(Math.round(from)===Math.round(to)){el.innerHTML=moneyHTML(to);return;} // sin cambio → no animar
+  const dur=550,t0=performance.now();
   function step(now){const p=Math.min((now-t0)/dur,1),e=1-Math.pow(1-p,3);el.innerHTML=moneyHTML(from+(to-from)*e);if(p<1)requestAnimationFrame(step);}
   requestAnimationFrame(step);
 }
@@ -672,7 +679,7 @@ function renderDonut(type){
       data:{labels:data.map(function(d){return d.name;}),datasets:[ds]},
       options:{cutout:'74%',responsive:true,maintainAspectRatio:false,
         plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){const pct=total?Math.round(c.parsed/total*100):0;return ' '+c.label+': '+money(c.parsed)+' ('+pct+'%)';}}}},
-        animation:{animateRotate:true,animateScale:true,duration:750,easing:'easeOutQuart'}}
+        animation:{animateRotate:true,animateScale:true,duration:500,easing:'easeOutQuart'}}
     });
   }
   legend.innerHTML=data.map(function(d,i){const pct=total?Math.round(d.amount/total*100):0;
@@ -702,7 +709,7 @@ function renderTrend(){
           categoryPercentage:0.6,barPercentage:0.8,
           plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return ' '+c.label+': '+money(c.parsed.y);}}}},
           scales:{x:{grid:{display:false},border:{display:false}},y:{beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{callback:function(v){return compact(v);}}}},
-          animation:{duration:600,easing:'easeOutQuart'}}
+          animation:{duration:450,easing:'easeOutQuart'}}
       });
       S._trendMode='day';
     }
@@ -753,16 +760,22 @@ function renderTrend(){
         color:'#8a97b8',
         generateLabels:function(chart){var cols=['#10B981','#F43F5E','#0EA5E9'];return chart.data.datasets.map(function(ds,i){return {text:ds.label,fillStyle:cols[i],strokeStyle:cols[i],lineWidth:0,pointStyle:'circle',fontColor:'#8a97b8',datasetIndex:i,hidden:!chart.isDatasetVisible(i)};});}}},tooltip:{callbacks:{label:function(c){return ' '+c.dataset.label+': '+money(c.parsed.y);}}}},
       scales:{x:{grid:{display:false},border:{display:false},offset:true},y:{beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{callback:function(v){return compact(v);}}}},
-      animation:{duration:650,easing:'easeOutQuart'}}
+      animation:{duration:450,easing:'easeOutQuart'}}
   });
 }
 function compact(v){const a=Math.abs(v);if(a>=1e6)return (v/1e6).toFixed(1)+'M';if(a>=1e3)return Math.round(v/1e3)+'k';return v;}
 function hexToRgba(hex,a){hex=String(hex).replace('#','');return 'rgba('+parseInt(hex.slice(0,2),16)+','+parseInt(hex.slice(2,4),16)+','+parseInt(hex.slice(4,6),16)+','+a+')';}
-/* Gradiente vertical para barras: color sólido arriba → translúcido abajo (look premium) */
+/* Gradiente vertical para barras: color sólido arriba → translúcido abajo (look premium).
+   Se cachea por gráfica+color+alto: crearlo en cada frame trababa la animación. */
 function barGrad(ctx,hex){
   const ch=ctx.chart,area=ch.chartArea; if(!area)return hex;
+  const h=Math.round(area.bottom-area.top);
+  const cache=ch._gradCache||(ch._gradCache={});
+  const key=hex+'@'+h;
+  if(cache[key])return cache[key];
   const g=ch.ctx.createLinearGradient(0,area.top,0,area.bottom);
   g.addColorStop(0,hexToRgba(hex,1));g.addColorStop(1,hexToRgba(hex,.40));
+  cache[key]=g;
   return g;
 }
 
