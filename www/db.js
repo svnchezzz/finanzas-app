@@ -90,6 +90,18 @@ function isNetErr_(e){
   const m = ((e && (e.message||e.msg)) || '') + '';
   return /fetch|network|Failed to fetch|NetworkError|timeout|abort|ECONN|ENOTFOUND/i.test(m);
 }
+// Error de sesión/autenticación (token vencido, refresco fallido, respuesta 401…).
+// Ocurre p.ej. tras horas sin abrir la app: el token caduca y, si además no hay
+// internet real, no se puede refrescar. En estos casos NO debemos perder el
+// movimiento: lo tratamos como "guardar local y reintentar luego".
+function isAuthErr_(e){
+  if (!e) return false;
+  const m = ((e.message||e.msg||e.error_description||e.error||e.hint||'') + '');
+  const code = (e.code!=null ? e.code : (e.status!=null ? e.status : '')) + '';
+  return code==='401' || /jwt|token|refresh|session|unauthorized|not authenticated|invalid claim|expired/i.test(m);
+}
+// ¿Conviene conservar el cambio y reintentarlo? (sin internet O sesión por refrescar)
+function isRetriable_(e){ return isNetErr_(e) || isAuthErr_(e); }
 // Corre una promesa de red con límite de tiempo; si tarda demasiado, la da por caída.
 function withTimeout_(p, ms){
   return new Promise(function(resolve, reject){
@@ -199,7 +211,7 @@ async function flushQueue_(){
       const item=q[0];
       try{ await applyOp_(item); subioAlgo=true; }
       catch(e){
-        if (isNetErr_(e)) break;                       // se fue el internet: parar y reintentar luego
+        if (isRetriable_(e)) break;                    // sin internet o sesión por refrescar: parar y reintentar luego
         if (window.toast) toast('Un cambio no se pudo subir y se omitió','err');
         console.error('Cambio omitido al sincronizar:', item, e);
       }
@@ -340,6 +352,26 @@ async function fetchAll_(){
   };
 }
 
+/* Vuelca datos frescos del servidor en la app y repinta la pantalla.
+   Actualiza los mismos campos que fija init() en app.js. */
+function applyFreshData_(data){
+  if (!window.S || !data) return;
+  window.S.transactions = data.transactions;
+  window.S.categories   = data.categories;
+  window.S.settings     = data.settings;
+  window.S.pendings     = data.pendings;
+  window.S.budgets      = data.budgets;
+  window.S.recurring    = data.recurring;
+  window.S.goals        = data.goals;
+  window.S.palettes     = data.palettes;
+  if (typeof window.renderAll === 'function') window.renderAll();
+}
+
+// Cuánto esperamos al servidor antes de pintar la copia local y seguir en segundo
+// plano. Evita quedarse 10s+ en blanco cuando hay "WiFi sin internet real" o el
+// token está venciéndose (su refresco puede tardar hasta 12s).
+const FIRST_PAINT_MS = 3500;
+
 const API = {
   async getInitialData(){
     // Si NO hay internet, ni intentes el servidor: usa la copia local de una vez.
@@ -347,16 +379,48 @@ const API = {
       const snapOff = loadSnapshot_();
       if (snapOff){ setOfflineBar_(); return snapOff; }
     }
+
+    // Descarga del servidor; la guardamos como copia local en cuanto llegue.
+    const fresh = fetchAll_().then(function(data){ saveSnapshotData_(data); return data; });
+    const snap = loadSnapshot_();
+
+    // Con copia local disponible: NO colgamos la pantalla esperando. Si el servidor
+    // tarda más de FIRST_PAINT_MS, pintamos la copia local ya y dejamos la descarga
+    // corriendo por detrás; cuando llegue, refrescamos la pantalla.
+    if (snap){
+      const race = await Promise.race([
+        fresh.then(function(d){ return { ok:true, data:d }; },
+                   function(e){ return { ok:false, err:e }; }),
+        new Promise(function(resolve){ setTimeout(function(){ resolve({ timeout:true }); }, FIRST_PAINT_MS); })
+      ]);
+      if (race && race.ok){                 // el servidor respondió a tiempo
+        updateBar_();
+        setTimeout(function(){ flushQueue_(); }, 1200);
+        return race.data;
+      }
+      if (race && race.ok === false){       // falló rápido (sin internet real): copia local
+        setOfflineBar_();
+        return snap;
+      }
+      // Tardó demasiado: mostramos la copia local ahora y refrescamos al llegar los datos.
+      fresh.then(function(data){
+        if (loadQueue_().length){ updateBar_(); flushQueue_(); }  // hay cambios locales: subir y repintar
+        else { applyFreshData_(data); updateBar_(); }
+      }, function(e){
+        if (isNetErr_(e)) markNet_(false);   // era WiFi sin internet: marca offline y muestra el aviso
+      });
+      setOfflineBar_();
+      return snap;
+    }
+
+    // Sin copia local: no queda más que esperar al servidor.
     try{
-      const data = await fetchAll_();     // hay internet
-      saveSnapshotData_(data);            // guarda copia local
+      const data = await fresh;
       updateBar_();
       setTimeout(function(){ flushQueue_(); }, 1200);
       return data;
     }catch(e){
-      const snap = loadSnapshot_();
-      if (snap){ setOfflineBar_(); return snap; }   // falló la red: usa la copia local
-      throw e;                                       // no hay copia y no hay red
+      throw e;   // no hay copia y no hay red
     }
   },
 
@@ -369,7 +433,7 @@ const API = {
     try{
       const saved = await txUpsert_(cid, tx); snapSoon_(); return mapTx_(saved);
     }catch(e){
-      if (isNetErr_(e)){ enqueue_({op:'add', client_id:cid, payload:tx}); snapSoon_(); return local; }
+      if (isRetriable_(e)){ enqueue_({op:'add', client_id:cid, payload:tx}); snapSoon_(); return local; }
       throw e;
     }
   },
@@ -379,7 +443,7 @@ const API = {
       const { error } = await netCall_(sb.from('transactions').update(buildTxPayload_(id, tx)).eq('client_id', id));
       if (error) throw error; snapSoon_(); return true;
     }catch(e){
-      if (isNetErr_(e)){ enqueue_({op:'update', client_id:id, payload:tx}); snapSoon_(); return true; }
+      if (isRetriable_(e)){ enqueue_({op:'update', client_id:id, payload:tx}); snapSoon_(); return true; }
       throw e;
     }
   },
@@ -389,7 +453,7 @@ const API = {
       const { error } = await netCall_(sb.from('transactions').delete().eq('client_id', id));
       if (error) throw error; snapSoon_(); return true;
     }catch(e){
-      if (isNetErr_(e)){ enqueueDelete_(id); snapSoon_(); return true; }
+      if (isRetriable_(e)){ enqueueDelete_(id); snapSoon_(); return true; }
       throw e;
     }
   },
