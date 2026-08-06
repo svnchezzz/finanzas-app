@@ -74,9 +74,32 @@
     try{ await p.cancel({ notifications:[{ id:nid(key) }] }); }catch(e){}
   }
 
+  // Estado del permiso SIN pedirlo: 'granted' | 'denied' | 'prompt' | 'none'
+  // ('none' = no hay plugin, p.ej. en el navegador).
+  async function perm(){
+    var p=plugin(); if(!p) return 'none';
+    try{
+      var r=await p.checkPermissions();
+      if(r.display==='granted') return 'granted';
+      if(r.display==='denied')  return 'denied';
+      return 'prompt';
+    }catch(e){ return 'none'; }
+  }
+
+  // Pide el permiso (abre el diálogo del sistema si toca). true si quedó dado.
+  async function request(){
+    var p=plugin(); if(!p) return false;
+    try{
+      var r=await p.checkPermissions();
+      if(r.display!=='granted') r=await p.requestPermissions();
+      return r.display==='granted';
+    }catch(e){ return false; }
+  }
+
   window.Notif={
     init:init, now:now, at:at, cancel:cancel,
     wasSeen:wasSeen, markSeen:markSeen, clearSeen:clearSeen,
+    perm:perm, request:request,
     available:function(){ return !!plugin(); }
   };
 })();

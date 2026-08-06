@@ -69,8 +69,27 @@ function mapRecurring_(r){ return {
 function mapGoal_(r){ return {
   id:String(r.id), name:r.name, target:num_(r.target), saved:num_(r.saved), color:r.color||'#8B5CF6', note:r.note||'' }; }
 
+/* El símbolo de moneda acaba dentro de HTML a través de money(), que se usa en
+   decenas de sitios. Se limpia aquí, en el único punto por donde entra desde el
+   servidor, en vez de escapar en cada uso: fuera caracteres de marcado y
+   máximo 4 caracteres (basta para $, €, COP, S/…). */
+/* Neutraliza celdas que una hoja de cálculo interpretaría como fórmula.
+   En .xlsx un texto no se evalúa como fórmula, pero el archivo se comparte y
+   es habitual reguardarlo como CSV, donde =, +, - y @ SÍ se ejecutan (incluso
+   DDE). Se antepone un apóstrofo, que las hojas de cálculo tratan como
+   "esto es texto". Barato y sin efectos sobre los datos legítimos. */
+function celdaSegura_(v){
+  if (typeof v!=='string') return v;                 // números y fechas, intactos
+  return /^[=+\-@\t\r]/.test(v) ? "'"+v : v;
+}
+function filaSegura_(fila){ return fila.map(celdaSegura_); }
+
+function limpiaSimbolo_(s){
+  const v=String(s==null?'':s).replace(/[<>"'`&\\/]/g,'').trim().slice(0,4);
+  return v||'$';
+}
 function mapSettings_(r){ return {
-  currencySymbol:r?.currency_symbol||'$', locale:r?.locale||'es-CO', decimals:r?.decimals||0,
+  currencySymbol:limpiaSimbolo_(r?.currency_symbol), locale:r?.locale||'es-CO', decimals:r?.decimals||0,
   appName:'Control Finanzas MS', palette:[],
   notifyEmail:r?.notify_email||'', notifyEnabled:!!r?.notify_enabled }; }
 
@@ -148,6 +167,30 @@ function enqueueDelete_(cid){
   saveQueue_(q); updateBar_();
 }
 
+/* ═══════ Sin internet en pendientes, metas, recurrencias y presupuestos ═════
+   Esas tablas no tienen columna client_id como los movimientos: su id lo pone
+   el servidor. Para poder crearlas sin internet se les da un id local
+   provisional ("tmp:xxx") con el que la app trabaja mientras tanto; al subir,
+   el id real del servidor sustituye al provisional en el resto de la cola.
+   Los presupuestos no necesitan nada de esto: su clave es tipo+categoría.   */
+function tmpId_(){ return 'tmp:' + uuid_(); }
+function esTmp_(id){ return typeof id==='string' && id.indexOf('tmp:')===0; }
+
+/* Encola una operación de una entidad que no es "movimiento". */
+function enqEnt_(ent, op, extra){
+  enqueue_(Object.assign({ent:ent, op:op}, extra||{}));
+}
+/* Borrar: si el alta aún no se ha subido, se cancelan ambas y no se manda nada. */
+function enqEntDelete_(ent, id){
+  let q=loadQueue_();
+  const teniaAlta = q.some(function(it){ return it.ent===ent && it.op==='add' && it.tmp===id; });
+  q = q.filter(function(it){ return !(it.ent===ent && (it.tmp===id || it.id===id)); });
+  if(!teniaAlta) q.push({ent:ent, op:'delete', id:id});
+  saveQueue_(q); updateBar_();
+}
+/* ¿Debe irse a la cola en vez de fallar? (sin internet, o error de red/sesión) */
+function aCola_(e){ return e===undefined ? isOffline_() : isRetriable_(e); }
+
 /* Copia local de tus datos (para abrir la app sin internet) */
 function cacheKey_(){ return 'cf_cache_' + (CURRENT_USER_ID || 'anon'); }
 function saveSnapshotData_(data){
@@ -189,14 +232,74 @@ async function txUpsert_(cid, tx){
     .upsert(buildTxPayload_(cid, tx), { onConflict:'client_id' }).select().single());
   if (error) throw error; return data;
 }
-async function applyOp_(item){
-  if (item.op==='add'){ await txUpsert_(item.client_id, item.payload); }
-  else if (item.op==='update'){
-    const { error } = await netCall_(sb.from('transactions').update(buildTxPayload_(item.client_id, item.payload)).eq('client_id', item.client_id));
+/* Cómo se manda cada entidad al servidor: tabla y cómo se arma la fila. */
+const ENT_={
+  pending:{ tabla:'pendings', fila:function(p){ return { due_date:p.dueDate||null, kind:p.kind, category:p.category||'',
+      amount:num_(p.amount), color:p.color||'#64748B', method:p.method||'',
+      status:p.status==='completed'?'completed':'pending', note:p.note||'' }; } },
+  goal:{ tabla:'goals', fila:function(g){ return { name:g.name||'Meta', target:num_(g.target),
+      saved:num_(g.saved), color:g.color||'#8B5CF6', note:g.note||'' }; } },
+  recur:{ tabla:'recurring', fila:function(rc){ return { type:rc.type, category:rc.category||'', amount:num_(rc.amount),
+      color:rc.color||'#64748B', source:normSource_(rc.source), day_of_month:rc.day||1,
+      note:rc.note||'', active:rc.active!==false }; } }
+};
+
+/* Aplica una operación de la cola. `mapa` traduce los ids provisionales a los
+   reales que devolvió el servidor durante esta misma subida. */
+async function applyOp_(item, mapa){
+  mapa = mapa || {};
+
+  // ── Movimientos (formato original de la cola: sin campo `ent`) ──
+  if (!item.ent){
+    if (item.op==='add'){ await txUpsert_(item.client_id, item.payload); }
+    else if (item.op==='update'){
+      const { error } = await netCall_(sb.from('transactions').update(buildTxPayload_(item.client_id, item.payload)).eq('client_id', item.client_id));
+      if (error) throw error;
+    } else if (item.op==='delete'){
+      const { error } = await netCall_(sb.from('transactions').delete().eq('client_id', item.client_id));
+      if (error) throw error;
+    }
+    return;
+  }
+
+  // ── Presupuestos: clave natural tipo+categoría, sin ids que reconciliar ──
+  if (item.ent==='budget'){
+    await API.setBudget(item.type, item.category, item.amount);
+    return;
+  }
+
+  const def=ENT_[item.ent]; if(!def) return;
+
+  if (item.op==='add'){
+    const { data, error } = await netCall_(sb.from(def.tabla).insert(def.fila(item.payload)).select().single());
+    if (error) throw error;
+    if (item.tmp) mapa[item.tmp]=String(data.id);   // a partir de aquí, el id real
+    return;
+  }
+
+  // update/delete/status/contribute necesitan un id real
+  let id=item.id;
+  if (esTmp_(id)){
+    id = mapa[id];
+    if (!id) return;   // su alta se descartó: no hay nada que actualizar
+  }
+
+  if (item.op==='update'){
+    const { error } = await netCall_(sb.from(def.tabla).update(def.fila(item.payload)).eq('id', id));
     if (error) throw error;
   } else if (item.op==='delete'){
-    const { error } = await netCall_(sb.from('transactions').delete().eq('client_id', item.client_id));
+    const { error } = await netCall_(sb.from(def.tabla).delete().eq('id', id));
     if (error) throw error;
+  } else if (item.op==='status'){
+    const { error } = await netCall_(sb.from('pendings').update({status:item.completed?'completed':'pending'}).eq('id', id));
+    if (error) throw error;
+  } else if (item.op==='contribute'){
+    // Se guarda el CAMBIO, no el total: así no se pisa lo que hayas aportado
+    // desde otro dispositivo mientras estabas sin internet.
+    const { data:g, error:e1 } = await netCall_(sb.from('goals').select('saved').eq('id', id).single());
+    if (e1) throw e1;
+    const { error:e2 } = await netCall_(sb.from('goals').update({saved:Math.max(0, num_(g.saved)+num_(item.amount))}).eq('id', id));
+    if (e2) throw e2;
   }
 }
 let _flushing=false;
@@ -206,10 +309,11 @@ async function flushQueue_(){
   if (!q.length){ updateBar_(); return; }
   _flushing=true; updateBar_();
   let subioAlgo=false;
+  const mapa={};                 // id provisional → id real, durante esta subida
   try{
     while(q.length){
       const item=q[0];
-      try{ await applyOp_(item); subioAlgo=true; }
+      try{ await applyOp_(item, mapa); subioAlgo=true; }
       catch(e){
         if (isRetriable_(e)) break;                    // sin internet o sesión por refrescar: parar y reintentar luego
         if (window.toast) toast('Un cambio no se pudo subir y se omitió','err');
@@ -244,18 +348,32 @@ async function flushQueue_(){
 /* Barra de aviso abajo: sin conexión / subiendo cambios */
 function ensureBar_(){
   if(document.getElementById('offline-bar')) return;
-  const css=document.createElement('style');
-  css.textContent='#offline-bar{position:fixed;left:0;right:0;bottom:0;z-index:80;display:none;'
-    +'text-align:center;padding:9px 14px;font:600 13px \'Inter\',system-ui,sans-serif;color:#fff;'
-    +'box-shadow:0 -4px 14px rgba(0,0,0,.35);padding-bottom:calc(9px + env(safe-area-inset-bottom,0px));'
-    +'transition:transform .34s var(--ease);will-change:transform}'
-    +'#offline-bar.show{display:block}'
-    +'@media(max-width:680px){'
-    +'#offline-bar{transform:translateY(calc(-64px - env(safe-area-inset-bottom,0px)));padding-bottom:9px}'
-    +'body.bars-hidden #offline-bar{transform:translateY(0);padding-bottom:calc(9px + env(safe-area-inset-bottom,0px))}'
-    +'}';
-  document.head.appendChild(css);
-  const bar=document.createElement('div'); bar.id='offline-bar'; document.body.appendChild(bar);
+  // El estilo vive en styles.css (allí están las variables de tema); aquí solo
+  // se crea el elemento. Antes se inyectaba CSS con colores fijos.
+  const bar=document.createElement('div');
+  bar.id='offline-bar';
+  bar.setAttribute('role','status');
+  bar.setAttribute('aria-live','polite');
+  bar.innerHTML='<span class="ob-ico"></span><span class="ob-txt"></span>';
+  document.body.appendChild(bar);
+}
+/* Iconos del aviso: nube tachada (sin conexión) y flechas girando (subiendo) */
+const OB_ICO_={
+  off:'<svg viewBox="0 0 24 24"><path d="M17.5 19H7a4.5 4.5 0 0 1-1-8.9"/>'
+     +'<path d="M8.6 6.4A6 6 0 0 1 18 9.5h.2a4.2 4.2 0 0 1 2.6 7.4"/><path d="M3 3l18 18"/></svg>',
+  sync:'<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>'
+};
+/* Pinta el aviso en un estado u otro sin duplicar código. */
+function setBar_(modo, texto){
+  const bar=document.getElementById('offline-bar'); if(!bar) return;
+  const ico=bar.querySelector('.ob-ico'), txt=bar.querySelector('.ob-txt');
+  if(!bar.classList.contains(modo)){          // solo redibuja el icono si cambia
+    bar.classList.remove('off','sync');
+    bar.classList.add(modo);
+    if(ico) ico.innerHTML=OB_ICO_[modo]||'';
+  }
+  if(txt) txt.textContent=texto;
+  bar.classList.add('show');
 }
 let _barHideT=null;          // temporizador para ocultar el aviso
 let _offlineNotified=false;  // evita repetir el aviso durante el mismo corte
@@ -272,9 +390,7 @@ function flashOffline_(){
   _offlineNotified=true;
   ensureBar_();
   const bar=document.getElementById('offline-bar'); if(!bar) return;
-  bar.style.background='#B45309';
-  bar.textContent=offlineText_(loadQueue_().length);
-  bar.classList.add('show');
+  setBar_('off', offlineText_(loadQueue_().length));
   if(_barHideT)clearTimeout(_barHideT);
   _barHideT=setTimeout(function(){ bar.classList.remove('show'); }, OFFLINE_MS);
 }
@@ -288,9 +404,7 @@ function updateBar_(){
     _offlineNotified=false;             // de vuelta en línea: rearmar el aviso
     if(_barHideT){clearTimeout(_barHideT);_barHideT=null;}
     if (n>0){
-      bar.style.background='#1D4ED8';
-      bar.textContent='Subiendo '+n+' cambio'+(n===1?'':'s')+'…';
-      bar.classList.add('show');
+      setBar_('sync', 'Subiendo '+n+' cambio'+(n===1?'':'s')+'…');
     } else {
       bar.classList.remove('show');
     }
@@ -481,88 +595,179 @@ const API = {
 
   /* ── Pendientes ── */
   async addPending(p){
-    const payload = { due_date:p.dueDate||null, kind:p.kind, category:p.category||'', amount:num_(p.amount),
-      color:p.color||'#64748B', method:p.method||'', status:p.status==='completed'?'completed':'pending', note:p.note||'' };
-    const { data, error } = await sb.from('pendings').insert(payload).select().single();
-    if (error) throw error;
-    return mapPending_(data);
+    // Objeto con el que la app trabaja mientras el alta no se haya subido
+    const local = function(tmp){ return { id:tmp, dueDate:p.dueDate||null, kind:p.kind, category:p.category||'',
+      amount:num_(p.amount), color:p.color||'#64748B', method:p.method||'',
+      status:p.status==='completed'?'completed':'pending', note:p.note||'' }; };
+    if (aCola_()){ const t=tmpId_(); enqEnt_('pending','add',{tmp:t,payload:p}); snapSoon_(); return local(t); }
+    try{
+      const { data, error } = await netCall_(sb.from('pendings').insert(ENT_.pending.fila(p)).select().single());
+      if (error) throw error;
+      return mapPending_(data);
+    }catch(e){
+      if (aCola_(e)){ const t=tmpId_(); enqEnt_('pending','add',{tmp:t,payload:p}); snapSoon_(); return local(t); }
+      throw e;
+    }
   },
   async updatePending(id, p){
-    const payload = { due_date:p.dueDate||null, kind:p.kind, category:p.category||'', amount:num_(p.amount),
-      color:p.color||'#64748B', method:p.method||'', status:p.status==='completed'?'completed':'pending', note:p.note||'' };
-    const { error } = await sb.from('pendings').update(payload).eq('id',id);
-    if (error) throw error; return true;
+    if (aCola_()){ enqEnt_('pending','update',{id:id,payload:p}); snapSoon_(); return true; }
+    try{
+      const { error } = await netCall_(sb.from('pendings').update(ENT_.pending.fila(p)).eq('id',id));
+      if (error) throw error; return true;
+    }catch(e){
+      if (aCola_(e)){ enqEnt_('pending','update',{id:id,payload:p}); snapSoon_(); return true; }
+      throw e;
+    }
   },
   async deletePending(id){
-    const { error } = await sb.from('pendings').delete().eq('id',id);
-    if (error) throw error; return true;
+    if (aCola_()){ enqEntDelete_('pending',id); snapSoon_(); return true; }
+    try{
+      const { error } = await netCall_(sb.from('pendings').delete().eq('id',id));
+      if (error) throw error; return true;
+    }catch(e){
+      if (aCola_(e)){ enqEntDelete_('pending',id); snapSoon_(); return true; }
+      throw e;
+    }
   },
   async setPendingStatus(id, completed){
-    const { error } = await sb.from('pendings').update({status:completed?'completed':'pending'}).eq('id',id);
-    if (error) throw error; return true;
+    if (aCola_()){ enqEnt_('pending','status',{id:id,completed:!!completed}); snapSoon_(); return true; }
+    try{
+      const { error } = await netCall_(sb.from('pendings').update({status:completed?'completed':'pending'}).eq('id',id));
+      if (error) throw error; return true;
+    }catch(e){
+      if (aCola_(e)){ enqEnt_('pending','status',{id:id,completed:!!completed}); snapSoon_(); return true; }
+      throw e;
+    }
   },
 
   /* ── Presupuestos ── */
   async setBudget(type, category, amount){
     amount = num_(amount);
-    if (amount<=0){
-      await sb.from('budgets').delete().eq('type',type).eq('category',category);
-      return { type, category, amount:0, deleted:true };
+    // Sin ids que reconciliar: la clave es tipo+categoría, así que basta con
+    // reencolar el último valor. Si ya había uno en cola, se reemplaza.
+    const encolar = function(){
+      let q=loadQueue_();
+      q = q.filter(function(it){ return !(it.ent==='budget' && it.type===type && it.category===category); });
+      q.push({ent:'budget', op:'set', type:type, category:category, amount:amount});
+      saveQueue_(q); updateBar_(); snapSoon_();
+      return { type, category, amount, deleted:amount<=0 };
+    };
+    if (aCola_()) return encolar();
+    try{
+      if (amount<=0){
+        const { error } = await netCall_(sb.from('budgets').delete().eq('type',type).eq('category',category));
+        if (error) throw error;
+        return { type, category, amount:0, deleted:true };
+      }
+      const { data:ex, error:e0 } = await netCall_(sb.from('budgets').select('id').eq('type',type).eq('category',category).maybeSingle());
+      if (e0) throw e0;
+      if (ex){ const { error } = await netCall_(sb.from('budgets').update({monthly_amount:amount}).eq('id',ex.id)); if(error) throw error; }
+      else   { const { error } = await netCall_(sb.from('budgets').insert({type,category,monthly_amount:amount})); if(error) throw error; }
+      return { type, category, amount };
+    }catch(e){
+      if (aCola_(e)) return encolar();
+      throw e;
     }
-    const { data:ex } = await sb.from('budgets').select('id').eq('type',type).eq('category',category).maybeSingle();
-    if (ex) await sb.from('budgets').update({monthly_amount:amount}).eq('id',ex.id);
-    else    await sb.from('budgets').insert({type,category,monthly_amount:amount});
-    return { type, category, amount };
   },
   async deleteBudget(type, category){ return API.setBudget(type, category, 0); },
 
   /* ── Recurrencias ── */
   async addRecurring(rc){
-    const payload = { type:rc.type, category:rc.category||'', amount:num_(rc.amount), color:rc.color||'#64748B',
-      source:normSource_(rc.source), day_of_month:rc.day||1, note:rc.note||'', active:rc.active!==false };
-    const { data, error } = await sb.from('recurring').insert(payload).select().single();
-    if (error) throw error;
-    return mapRecurring_(data);
+    const local = function(tmp){ return { id:tmp, type:rc.type, category:rc.category||'', amount:num_(rc.amount),
+      color:rc.color||'#64748B', source:normSource_(rc.source), day:rc.day||1,
+      note:rc.note||'', active:rc.active!==false }; };
+    if (aCola_()){ const t=tmpId_(); enqEnt_('recur','add',{tmp:t,payload:rc}); snapSoon_(); return local(t); }
+    try{
+      const { data, error } = await netCall_(sb.from('recurring').insert(ENT_.recur.fila(rc)).select().single());
+      if (error) throw error;
+      return mapRecurring_(data);
+    }catch(e){
+      if (aCola_(e)){ const t=tmpId_(); enqEnt_('recur','add',{tmp:t,payload:rc}); snapSoon_(); return local(t); }
+      throw e;
+    }
   },
   async updateRecurring(id, rc){
-    const payload = { type:rc.type, category:rc.category||'', amount:num_(rc.amount), color:rc.color||'#64748B',
-      source:normSource_(rc.source), day_of_month:rc.day||1, note:rc.note||'', active:rc.active!==false };
-    const { error } = await sb.from('recurring').update(payload).eq('id',id);
-    if (error) throw error; return true;
+    if (aCola_()){ enqEnt_('recur','update',{id:id,payload:rc}); snapSoon_(); return true; }
+    try{
+      const { error } = await netCall_(sb.from('recurring').update(ENT_.recur.fila(rc)).eq('id',id));
+      if (error) throw error; return true;
+    }catch(e){
+      if (aCola_(e)){ enqEnt_('recur','update',{id:id,payload:rc}); snapSoon_(); return true; }
+      throw e;
+    }
   },
   async deleteRecurring(id){
-    const { error } = await sb.from('recurring').delete().eq('id',id);
-    if (error) throw error; return true;
+    if (aCola_()){ enqEntDelete_('recur',id); snapSoon_(); return true; }
+    try{
+      const { error } = await netCall_(sb.from('recurring').delete().eq('id',id));
+      if (error) throw error; return true;
+    }catch(e){
+      if (aCola_(e)){ enqEntDelete_('recur',id); snapSoon_(); return true; }
+      throw e;
+    }
   },
 
   /* ── Metas ── */
   async addGoal(g){
-    const payload = { name:g.name||'Meta', target:num_(g.target), saved:num_(g.saved), color:g.color||'#8B5CF6', note:g.note||'' };
-    const { data, error } = await sb.from('goals').insert(payload).select().single();
-    if (error) throw error;
-    return mapGoal_(data);
+    const local = function(tmp){ return { id:tmp, name:g.name||'Meta', target:num_(g.target),
+      saved:num_(g.saved), color:g.color||'#8B5CF6', note:g.note||'' }; };
+    if (aCola_()){ const t=tmpId_(); enqEnt_('goal','add',{tmp:t,payload:g}); snapSoon_(); return local(t); }
+    try{
+      const { data, error } = await netCall_(sb.from('goals').insert(ENT_.goal.fila(g)).select().single());
+      if (error) throw error;
+      return mapGoal_(data);
+    }catch(e){
+      if (aCola_(e)){ const t=tmpId_(); enqEnt_('goal','add',{tmp:t,payload:g}); snapSoon_(); return local(t); }
+      throw e;
+    }
   },
   async updateGoal(id, g){
-    const payload = { name:g.name||'Meta', target:num_(g.target), saved:num_(g.saved), color:g.color||'#8B5CF6', note:g.note||'' };
-    const { error } = await sb.from('goals').update(payload).eq('id',id);
-    if (error) throw error; return true;
+    if (aCola_()){ enqEnt_('goal','update',{id:id,payload:g}); snapSoon_(); return true; }
+    try{
+      const { error } = await netCall_(sb.from('goals').update(ENT_.goal.fila(g)).eq('id',id));
+      if (error) throw error; return true;
+    }catch(e){
+      if (aCola_(e)){ enqEnt_('goal','update',{id:id,payload:g}); snapSoon_(); return true; }
+      throw e;
+    }
   },
   async deleteGoal(id){
-    const { error } = await sb.from('goals').delete().eq('id',id);
-    if (error) throw error; return true;
+    if (aCola_()){ enqEntDelete_('goal',id); snapSoon_(); return true; }
+    try{
+      const { error } = await netCall_(sb.from('goals').delete().eq('id',id));
+      if (error) throw error; return true;
+    }catch(e){
+      if (aCola_(e)){ enqEntDelete_('goal',id); snapSoon_(); return true; }
+      throw e;
+    }
   },
   async contributeGoal(id, amount){
-    const { data:g, error:e1 } = await sb.from('goals').select('saved').eq('id',id).single();
-    if (e1) throw e1;
-    const nuevo = Math.max(0, num_(g.saved)+num_(amount));
-    const { error:e2 } = await sb.from('goals').update({saved:nuevo}).eq('id',id);
-    if (e2) throw e2;
-    return { id:String(id), saved:nuevo };
+    // Sin internet se encola el APORTE (el cambio), no el total resultante: al
+    // subirlo se suma sobre lo que haya en el servidor, así no se pierde un
+    // aporte hecho desde otro dispositivo mientras no había red.
+    const localSuma = function(){
+      const g=(window.S&&window.S.goals||[]).find(function(x){ return String(x.id)===String(id); });
+      const nuevo=Math.max(0, num_(g?g.saved:0)+num_(amount));
+      enqEnt_('goal','contribute',{id:id, amount:num_(amount)}); snapSoon_();
+      return { id:String(id), saved:nuevo };
+    };
+    if (aCola_()) return localSuma();
+    try{
+      const { data:g, error:e1 } = await netCall_(sb.from('goals').select('saved').eq('id',id).single());
+      if (e1) throw e1;
+      const nuevo = Math.max(0, num_(g.saved)+num_(amount));
+      const { error:e2 } = await netCall_(sb.from('goals').update({saved:nuevo}).eq('id',id));
+      if (e2) throw e2;
+      return { id:String(id), saved:nuevo };
+    }catch(e){
+      if (aCola_(e)) return localSuma();
+      throw e;
+    }
   },
 
   /* ── Ajustes ── */
   async saveAppSettings(currencySymbol, decimals, locale){
-    const payload = { currency_symbol:currencySymbol||'$', decimals:parseInt(decimals,10)||0, locale:locale||'es-CO' };
+    const payload = { currency_symbol:limpiaSimbolo_(currencySymbol), decimals:parseInt(decimals,10)||0, locale:locale||'es-CO' };
     const { data, error } = await sb.from('settings').update(payload).eq('user_id',CURRENT_USER_ID).select().single();
     if (error) throw error;
     return mapSettings_(data);
@@ -590,7 +795,7 @@ const API = {
       [],
       ['Fecha', 'Tipo', 'Categoría', 'Monto', 'Nota']
     ];
-    const cuerpo = list.map(function(t){ return [ fmtFechaCorta_(t.date), TIPO_ES[t.type]||t.type, t.category, t.amount, t.note||'' ]; });
+    const cuerpo = list.map(function(t){ return filaSegura_([ fmtFechaCorta_(t.date), TIPO_ES[t.type]||t.type, t.category, t.amount, t.note||'' ]); });
     const ws = XLSX.utils.aoa_to_sheet(enc.concat(cuerpo));
     ws['!cols'] = [{wch:12},{wch:10},{wch:24},{wch:14},{wch:34}];
     // Colores: ingresos=verde, gastos=rojo, ahorro=azul, disponible=morado
@@ -611,7 +816,7 @@ const API = {
 
     const pl = exportPendFilter_(scope);
     const pEnc = [ ['Control Finanzas MS — Ingresos / Pagos pendientes'], [scopeLabel_(scope)+'  ·  Generado: '+nowStamp_()], [], ['Fecha acordada','Tipo','Categoría','Monto','Método','Estado'] ];
-    const pCuerpo = pl.map(function(p){ return [ p.dueDate?fmtFechaCorta_(p.dueDate):'', p.kind==='Income'?'Ingreso':'Pago', p.category, p.amount, p.method||'', estadoPend_(p) ]; });
+    const pCuerpo = pl.map(function(p){ return filaSegura_([ p.dueDate?fmtFechaCorta_(p.dueDate):'', p.kind==='Income'?'Ingreso':'Pago', p.category, p.amount, p.method||'', estadoPend_(p) ]); });
     const pws = XLSX.utils.aoa_to_sheet(pEnc.concat(pCuerpo));
     pws['!cols'] = [{wch:14},{wch:10},{wch:24},{wch:14},{wch:14},{wch:12}];
     XLSX.utils.book_append_sheet(wb, pws, 'Pendientes');
@@ -723,6 +928,9 @@ function getDownloadsPlugin_(){
   return null;
 }
 window.downloadB64 = async function(res){
+  // Exportar abre el menú Compartir de Android (la app pasa a segundo plano):
+  // avisamos al bloqueo para que no pida el PIN al volver. Ver settings.js.
+  if (window.LockSkip) window.LockSkip();
   if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()){
     // 1) Guardar directo en la carpeta Descargas del celular
     let savedToDownloads = false;
@@ -759,55 +967,76 @@ window.downloadB64 = async function(res){
 function injectLogin_(){
   const css = document.createElement('style');
   css.textContent = `
-  #login-ov{position:fixed;inset:0;z-index:500;display:none;align-items:center;justify-content:center;
-    background:radial-gradient(1200px 600px at 80% -10%,rgba(79,70,229,.18),transparent 60%),#0a0e1a}
+  #login-ov{position:fixed;inset:0;z-index:500;display:none;align-items:center;justify-content:center;background:var(--bg,#F7F7F5)}
   #login-ov.show{display:flex}
-  #login-card{width:min(380px,92vw);background:linear-gradient(160deg,#121a2e,#0e1424);
-    border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:28px;
-    box-shadow:0 18px 50px -18px rgba(0,0,0,.7);font-family:'Inter',system-ui,sans-serif;color:#eef2ff}
-  #login-card h1{font-family:'Space Grotesk','Inter',sans-serif;font-size:22px;margin:0 0 4px}
-  #login-card p.sub{color:#8a97b8;font-size:13px;margin:0 0 20px}
-  #login-card label{display:block;font-size:12px;font-weight:600;color:#8a97b8;text-transform:uppercase;letter-spacing:.7px;margin:14px 0 7px}
-  #login-card input{width:100%;background:#0e1424;border:1px solid rgba(255,255,255,.12);color:#eef2ff;
-    border-radius:12px;padding:12px 14px;font-size:16px;font-family:inherit}
-  #login-card input:focus{outline:0;border-color:#6366F1}
-  #login-card .lbtn{width:100%;border:0;border-radius:12px;padding:13px;margin-top:18px;cursor:pointer;
-    font-family:inherit;font-weight:700;font-size:15px;background:linear-gradient(135deg,#4F46E5,#6366F1);color:#fff}
-  #login-card .lbtn.ghost{background:transparent;border:1px solid rgba(255,255,255,.12);margin-top:10px}
-  #login-msg{font-size:13px;color:#F43F5E;margin-top:12px;min-height:18px;text-align:center}
+  #login-card{width:min(380px,92vw);background:var(--surface,#fff);
+    border:1px solid var(--line,#E7E7E4);border-radius:var(--r-l,20px);padding:28px;
+    box-shadow:var(--modal-shadow,0 16px 48px rgba(0,0,0,.12));font-family:var(--sans,'Inter',system-ui,sans-serif);color:var(--ink,#0A0A0A)}
+  #login-card h1{font-size:22px;font-weight:700;letter-spacing:-.02em;margin:0 0 4px}
+  #login-card p.sub{color:var(--ink-2,#5C5C5C);font-size:13px;margin:0 0 20px}
+  #login-card label{display:block;font-size:11px;font-weight:600;color:var(--ink-2,#5C5C5C);text-transform:uppercase;letter-spacing:.08em;margin:14px 0 7px}
+  #login-card input{width:100%;background:var(--surface-2,#F1F1EF);border:1px solid var(--line,#E7E7E4);color:var(--ink,#0A0A0A);
+    border-radius:var(--r-s,10px);padding:12px 14px;font-size:16px;font-family:inherit}
+  #login-card input:focus{outline:0;border-color:var(--ink,#0A0A0A)}
+  #login-card .lbtn{width:100%;border:0;border-radius:var(--r-m,14px);padding:14px;margin-top:18px;cursor:pointer;
+    font-family:inherit;font-weight:600;font-size:15px;background:var(--accent,#0A0A0A);color:var(--on-accent,#fff);transition:transform .12s ease,opacity .2s ease}
+  #login-card .lbtn:active{transform:scale(.97);opacity:.9}
+  #login-card .lbtn.ghost{background:transparent;border:1px solid var(--line,#E7E7E4);color:var(--ink,#0A0A0A);margin-top:10px}
+  #login-msg{font-size:13px;color:var(--neg,#C93B3B);margin-top:12px;min-height:18px;text-align:center}
+  #login-card .lswitch{width:100%;border:0;background:transparent;color:var(--ink-2,#5C5C5C);font-family:inherit;font-size:13px;margin-top:14px;cursor:pointer;padding:8px}
+  #login-card .lswitch b{color:var(--ink,#0A0A0A)}
+  #login-card[data-mode="in"] #login-up{display:none}
+  #login-card[data-mode="up"] #login-in{display:none}
   #signup-ov{position:fixed;inset:0;z-index:600;display:none;align-items:center;justify-content:center;padding:24px;
-    background:rgba(5,8,16,.66)}
+    background:var(--scrim,rgba(10,10,10,.35))}
   #signup-ov.show{display:flex}
-  #signup-card{width:min(400px,92vw);background:linear-gradient(160deg,#121a2e,#0e1424);
-    border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:30px 26px;text-align:center;
-    box-shadow:0 24px 60px -20px rgba(0,0,0,.8);font-family:'Inter',system-ui,sans-serif;color:#eef2ff;
-    animation:supop .35s cubic-bezier(.34,1.32,.5,1) both}
+  #signup-card{width:min(400px,92vw);background:var(--surface,#fff);
+    border:1px solid var(--line,#E7E7E4);border-radius:var(--r-l,20px);padding:30px 26px;text-align:center;
+    box-shadow:var(--modal-shadow,0 16px 48px rgba(0,0,0,.12));font-family:var(--sans,'Inter',system-ui,sans-serif);color:var(--ink,#0A0A0A);
+    animation:supop .35s cubic-bezier(.34,1.3,.64,1) both}
   @keyframes supop{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
   #signup-card .mail{width:58px;height:58px;border-radius:16px;margin:0 auto 18px;display:flex;align-items:center;justify-content:center;
-    background:linear-gradient(135deg,#6366F1,#0EA5E9);box-shadow:0 12px 30px -10px rgba(99,102,241,.6)}
-  #signup-card .mail svg{width:30px;height:30px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
-  #signup-card h2{font-family:'Space Grotesk','Inter',sans-serif;font-size:21px;margin:0 0 10px}
-  #signup-card p{color:#8a97b8;font-size:14px;line-height:1.6;margin:0 auto 6px;max-width:310px}
-  #signup-card p b{color:#eef2ff}
-  #signup-card .lbtn{width:100%;border:0;border-radius:12px;padding:13px;margin-top:22px;cursor:pointer;
-    font-family:inherit;font-weight:700;font-size:15px;background:linear-gradient(135deg,#4F46E5,#6366F1);color:#fff}`;
+    background:var(--surface-2,#F1F1EF);border:1px solid var(--line,#E7E7E4)}
+  #signup-card .mail svg{width:30px;height:30px;stroke:var(--ink,#0A0A0A);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  #signup-card h2{font-size:21px;font-weight:700;letter-spacing:-.02em;margin:0 0 10px}
+  #signup-card p{color:var(--ink-2,#5C5C5C);font-size:14px;line-height:1.6;margin:0 auto 6px;max-width:310px}
+  #signup-card p b{color:var(--ink,#0A0A0A)}
+  #signup-card .lbtn{width:100%;border:0;border-radius:var(--r-m,14px);padding:14px;margin-top:22px;cursor:pointer;
+    font-family:inherit;font-weight:600;font-size:15px;background:var(--accent,#0A0A0A);color:var(--on-accent,#fff)}`;
   document.head.appendChild(css);
 
   const ov = document.createElement('div');
   ov.id = 'login-ov';
   ov.innerHTML = `
-    <div id="login-card">
-      <h1>Control Finanzas MS</h1>
-      <p class="sub">Escribe tu correo y contraseña. Si es tu primera vez, pulsa "Crear cuenta nueva".</p>
+    <div id="login-card" data-mode="in">
+      <h1 id="login-title">Bienvenido</h1>
+      <p class="sub" id="login-sub">Inicia sesión para continuar con tus finanzas.</p>
       <label>Correo electrónico</label>
       <input type="email" id="login-email" placeholder="tucorreo@ejemplo.com" autocomplete="email">
       <label>Contraseña</label>
       <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password">
       <button class="lbtn" id="login-in">Entrar</button>
-      <button class="lbtn ghost" id="login-up">Crear cuenta nueva</button>
+      <button class="lbtn" id="login-up">Crear cuenta</button>
       <div id="login-msg"></div>
+      <button class="lswitch" id="login-switch" type="button">¿No tienes cuenta? <b>Crear cuenta</b></button>
     </div>`;
   document.body.appendChild(ov);
+
+  // Dos vistas: iniciar sesión ↔ crear cuenta
+  function setLoginMode_(goUp){
+    document.getElementById('login-card').setAttribute('data-mode',goUp?'up':'in');
+    document.getElementById('login-title').textContent=goUp?'Crear cuenta':'Bienvenido';
+    document.getElementById('login-sub').textContent=goUp
+      ?'Crea tu cuenta con tu correo y una contraseña de al menos 6 caracteres.'
+      :'Inicia sesión para continuar con tus finanzas.';
+    document.getElementById('login-switch').innerHTML=goUp
+      ?'¿Ya tienes cuenta? <b>Inicia sesión</b>'
+      :'¿No tienes cuenta? <b>Crear cuenta</b>';
+  }
+  document.getElementById('login-switch').onclick = function(){
+    setLoginMode_(document.getElementById('login-card').getAttribute('data-mode')==='in');
+    document.getElementById('login-msg').textContent='';
+  };
 
   // Recuadro de "confirma tu correo" tras crear la cuenta
   const sup = document.createElement('div');
@@ -824,8 +1053,9 @@ function injectLogin_(){
   function closeSignup_(){
     sup.classList.remove('show');
     const p=document.getElementById('login-pass'); if(p) p.value='';
+    setLoginMode_(false);   // vuelve al cuadro de "Iniciar sesión"
     document.getElementById('login-msg').textContent='Confirma tu correo y luego pulsa "Entrar".';
-    document.getElementById('login-msg').style.color='#10B981';
+    document.getElementById('login-msg').style.color='var(--pos,#0E8A4A)';
   }
   document.getElementById('signup-ok').onclick = closeSignup_;
   sup.addEventListener('click', function(ev){ if(ev.target.id==='signup-ov') closeSignup_(); });
@@ -835,15 +1065,15 @@ function injectLogin_(){
   const pass  = ()=>document.getElementById('login-pass').value;
 
   document.getElementById('login-in').onclick = async ()=>{
-    msg().style.color='#F43F5E'; msg().textContent='Entrando…';
+    msg().style.color='var(--neg,#C93B3B)'; msg().textContent='Entrando…';
     const { error } = await sb.auth.signInWithPassword({ email:email(), password:pass() });
     if (error) msg().textContent = traducirError_(error.message);
     else startApp_();
   };
   document.getElementById('login-up').onclick = async ()=>{
-    msg().style.color='#F43F5E';
+    msg().style.color='var(--neg,#C93B3B)';
     if (!email() || !pass()){
-      msg().textContent = 'Escribe tu correo y contraseña arriba, luego pulsa "Crear cuenta nueva".';
+      msg().textContent = 'Escribe tu correo y una contraseña para crear tu cuenta.';
       return;
     }
     if (pass().length < 6){
@@ -939,11 +1169,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
    (Pegar este bloque AL FINAL de db.js)
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* Recargar los datos del servidor y repintar la pantalla */
+/* Recargar los datos del servidor y repintar la pantalla.
+   Devuelve cómo terminó: 'ok' | 'offline' | 'queued' | 'error'. Quien llame
+   puede así decir la verdad al usuario en vez de dar por hecho que salió bien
+   (antes se tragaba todo y siempre parecía exitoso). */
 async function refreshData_(){
-  if (isOffline_()){ if(window.toast) toast('Sin conexión','info'); return; }
+  if (isOffline_()){ if(window.toast) toast('Sin conexión','info'); return 'offline'; }
   // si hay cambios sin subir, súbelos (flushQueue_ ya recarga y repinta al terminar)
-  if (loadQueue_().length){ await flushQueue_(); return; }
+  if (loadQueue_().length){ await flushQueue_(); return 'queued'; }
   try{
     const data = await fetchAll_();
     saveSnapshotData_(data);
@@ -959,7 +1192,8 @@ async function refreshData_(){
       if (typeof window.renderAll === 'function') window.renderAll();
     }
     if (window.toast) toast('Actualizado','ok');
-  }catch(e){ if (window.toast) toast('No se pudo actualizar','err'); }
+    return 'ok';
+  }catch(e){ if (window.toast) toast('No se pudo actualizar','err'); return 'error'; }
 }
 window.refreshData = refreshData_;
 

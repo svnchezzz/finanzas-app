@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(DownloadsPlugin.class); // guardar exportaciones en Descargas
+        registerPlugin(BiometricPlugin.class); // desbloqueo con huella digital
         super.onCreate(savedInstanceState);
     }
 
