@@ -6,7 +6,7 @@
 /* ── Tokens: modo claro (default) ─────────────────────────────────────── */
 :root{
   --bg:#F7F7F5; --surface:#FFFFFF; --surface-2:#F1F1EF;
-  --ink:#0A0A0A; --ink-2:#5C5C5C; --ink-3:#9A9A96;
+  --ink:#0A0A0A; --ink-2:#5C5C5C; --ink-3:#757572;
   --line:#E7E7E4; --accent:#0A0A0A; --on-accent:#FFFFFF;
 
   --pos:#0E8A4A; --neg:#C93B3B; --warn:#B7791F; --sav:#33689E;
@@ -45,7 +45,7 @@ html{color-scheme:light}
 /* ── Tokens: modo oscuro §2.2 ─────────────────────────────────────────── */
 html[data-theme="dark"]{
   --bg:#0A0A0A; --surface:#161616; --surface-2:#212121;
-  --ink:#F5F5F3; --ink-2:#A3A3A0; --ink-3:#6B6B68;
+  --ink:#F5F5F3; --ink-2:#A3A3A0; --ink-3:#8A8A85;
   --line:#262626; --accent:#F5F5F3; --on-accent:#0A0A0A;
 
   --pos:#37C97C; --neg:#F26D6D; --warn:#E8B04B; --sav:#7FB0E0;
@@ -103,6 +103,8 @@ body.no-scroll{overflow:hidden}
 .appbar{position:sticky;top:0;z-index:100;width:100%;margin-bottom:var(--s-4);
   background:var(--nav-bg);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);
   border-bottom:1px solid var(--line);
+  /* Esquinas inferiores redondeadas: el borde recto cortaba la pantalla en seco */
+  border-bottom-left-radius:var(--r-m);border-bottom-right-radius:var(--r-m);
   transition:transform .34s var(--ease),background-color .3s ease,border-color .3s ease;will-change:transform}
 .appbar.bars-hidden{transform:translateY(-100%)}
 .appbar-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;gap:10px;
@@ -216,7 +218,7 @@ html[data-theme="dark"] .segmented:not(.ink-ready) button.active{background:var(
 .kpi-balance .kpi-icon{background:var(--surface-2);color:var(--ink)}
 .kpi-label{font-size:11px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:.08em}
 .kpi-value{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.15;transition:color .2s var(--ease)}
-.cur-sym{font-size:.7em;font-weight:500;color:var(--ink-2);margin-right:.12em;vertical-align:.06em}
+.cur-sym{font-size:.7em;font-weight:500;color:var(--ink-2);margin-right:.25em;vertical-align:.06em}
 .kpi-value.kpi-up{animation:kpiFlashUp .7s var(--ease)}
 .kpi-value.kpi-down{animation:kpiFlashDown .7s var(--ease)}
 @keyframes kpiFlashUp{0%{color:var(--pos)}100%{color:var(--ink)}}
@@ -286,14 +288,18 @@ html[data-theme="dark"] .segmented:not(.ink-ready) button.active{background:var(
 .hr-badge.Savings{background:var(--sav-bg);color:var(--sav)}
 .hr-amt{font-weight:700;font-size:14.5px;min-width:96px;text-align:right;margin-left:auto}
 .hr-amt.Income{color:var(--pos)}.hr-amt.Expense{color:var(--neg)}.hr-amt.Savings{color:var(--sav)}
-.hr-del{display:grid;place-items:center;border:0;background:transparent;color:var(--ink-3);cursor:pointer;width:30px;height:30px;border-radius:8px;transition:.2s;opacity:.8}
+.hr-del{position:relative;display:grid;place-items:center;border:0;background:transparent;color:var(--ink-3);cursor:pointer;width:30px;height:30px;border-radius:8px;transition:.2s;opacity:.8}
 .hist-row:hover .hr-del{opacity:1}
 .hr-del:hover{background:var(--neg-bg);color:var(--neg)}
-.hr-edit{display:grid;place-items:center;border:0;background:transparent;color:var(--ink-2);cursor:pointer;width:30px;height:30px;border-radius:8px;opacity:.8;transition:.2s}
+.hr-edit{position:relative;display:grid;place-items:center;border:0;background:transparent;color:var(--ink-2);cursor:pointer;width:30px;height:30px;border-radius:8px;opacity:.8;transition:.2s}
 .hist-row:hover .hr-edit{opacity:1}
 .hr-edit:hover{color:var(--ink);background:var(--surface-2)}
 .hr-edit svg,.hr-del svg{width:16px;height:16px;display:block}
+.hr-edit::after,.hr-del::after{content:'';position:absolute;inset:-6px;border-radius:inherit}
 .pend-act svg{width:16px;height:16px;display:block}
+/* Zona de toque ampliada a ~42px (mínimo táctil) sin cambiar el tamaño visible.
+   El recorte coincide con el gap de .pend-acts, así no se roban toques entre sí. */
+.pend-act::after{content:'';position:absolute;inset:-4px;border-radius:inherit}
 .cat-edit svg{width:15px;height:15px;display:block}
 .year-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px}
 .ys-cell{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:14px}
@@ -301,8 +307,15 @@ html[data-theme="dark"] .segmented:not(.ink-ready) button.active{background:var(
 .ys-cell .ys-v{font-weight:700;font-size:18px;margin-top:4px}
 
 /* Controles del historial: barra de herramientas agrupada y con etiquetas */
-.hist-controls{display:flex;flex-direction:column;gap:12px;margin-bottom:var(--s-6);
-  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:14px;box-shadow:var(--card-shadow)}
+.hist-controls{display:flex;flex-direction:column;gap:10px;margin-bottom:var(--s-5)}
+/* La agrupación es texto, no otro control compitiendo con los filtros */
+select.grain-txt{flex:0 0 auto;width:auto;appearance:none;-webkit-appearance:none;cursor:pointer;
+  border:0;background:transparent;color:var(--ink-2);font-family:var(--sans);font-size:12.5px;font-weight:600;
+  padding:8px 15px 8px 2px;
+  background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);
+  background-position:calc(100% - 5px) 55%,calc(100% - 1px) 55%;background-size:4px 4px,4px 4px;background-repeat:no-repeat}
+select.grain-txt:hover{color:var(--ink)}
+select.grain-txt:focus{outline:0;color:var(--ink)}
 .fltr-row{display:flex;align-items:center;gap:10px}
 .fltr-label{flex:0 0 92px;font-size:11px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:.06em}
 .fltr-row .segmented.sub{margin-bottom:0;flex:1;width:auto}
@@ -382,7 +395,7 @@ html[data-theme="dark"] .segmented:not(.ink-ready) button.active{background:var(
 .action-opt:hover{border-color:var(--ink-3);background:var(--surface-2)}
 .action-opt:active{transform:scale(.98)}
 
-.modal{width:min(520px,94vw);max-height:90vh;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+.modal{width:min(520px,94vw);max-height:calc(90vh - var(--kb,0px));overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
   background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--modal-shadow);
   margin-bottom:env(safe-area-inset-bottom,0px);
   transform:translateY(22px) scale(.97);opacity:0;transition:transform .42s var(--spring-sheet),opacity .24s var(--ease-soft);will-change:transform}
@@ -449,6 +462,87 @@ html[data-theme="dark"] .segmented:not(.ink-ready) button.active{background:var(
 .swatch-custom.active{box-shadow:0 0 0 2px var(--surface) inset,0 0 0 2px var(--ink)}
 .mini-swatches .swatch{width:20px;height:20px;border-radius:50%}
 .mini-swatches .swatch-custom{width:20px;height:20px;border-radius:50%;box-shadow:0 0 0 2px var(--line) inset}
+
+/* Buscador y agrupador comparten fila: eran dos filas de filtros antes de ver
+   el primer movimiento y en el celular se comían media pantalla. */
+/* La nota no puede partir la fila en tres renglones: alturas irregulares hacen
+   difícil recorrer la columna de importes. */
+.hr-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Un grupo con solo pendientes no tiene neto que mostrar */
+.hist-group-net.pend{color:var(--ink-3);font-weight:600}
+.hist-more{width:100%;justify-content:center;margin-top:2px}
+/* Lista ampliada: los grupos ya visibles no vuelven a animarse (parpadeo) */
+.history-list.no-anim .hist-group{animation:none}
+
+/* ── Historial estilo iOS: cabecera con botones redondos y menú flotante ──
+   Los filtros dejan de ocupar una barra fija; salen del botón y el filtro
+   vigente se lee como subtítulo, igual que en las apps de Apple. */
+.hist-head{align-items:center;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+/* Resumen de lo que se está viendo: llena el hueco con dato, no con adorno */
+.hist-acts{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.round-btn{position:relative;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink-2);cursor:pointer;
+  transition:background .2s var(--ease),color .2s var(--ease),transform .12s var(--ease-spring)}
+.round-btn svg{width:18px;height:18px;display:block}
+/* El ícono se vuelve ✕ al abrir el menú, igual que el + de la barra inferior */
+.rb-morph svg{grid-area:1/1;transition:opacity .18s var(--ease),transform .32s var(--ease-spring)}
+.rb-morph .ic-close{opacity:0;transform:rotate(-90deg) scale(.5)}
+.rb-morph[aria-expanded="true"] .ic-filter{opacity:0;transform:rotate(90deg) scale(.5)}
+.rb-morph[aria-expanded="true"] .ic-close{opacity:1;transform:none}
+/* Rebote al elegir tipo, para que se note que el círculo tomó su color */
+.round-btn.pop{animation:filtroPop .46s var(--ease-spring)}
+@keyframes filtroPop{0%{transform:scale(1)}35%{transform:scale(1.22)}70%{transform:scale(.94)}100%{transform:scale(1)}}
+.round-btn:hover{color:var(--ink)}
+.round-btn:active{transform:scale(.92)}
+.round-btn.on,.round-btn[aria-expanded="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.rb-dot{position:absolute;top:-1px;right:-1px;width:9px;height:9px;border-radius:50%;
+  background:var(--neg);border:2px solid var(--bg)}
+/* Con un tipo filtrado, el círculo toma su color: verde ingreso, rojo gasto, azul ahorro */
+.round-btn.t-Income{background:var(--pos);border-color:var(--pos);color:#fff}
+.round-btn.t-Expense{background:var(--neg);border-color:var(--neg);color:#fff}
+.round-btn.t-Savings{background:var(--sav);border-color:var(--sav);color:#fff}
+/* El buscador se despliega desde la lupa: el origen está en la esquina superior
+   derecha, justo debajo del botón. */
+.hist-search{margin-bottom:14px;transform-origin:top right;animation:searchOut .3s var(--ease-spring) both}
+.hist-search.out{animation:searchIn .17s var(--ease-soft) both}
+@keyframes searchOut{from{opacity:0;transform:scale(.18) translateY(-16px)}to{opacity:1;transform:none}}
+@keyframes searchIn{from{opacity:1;transform:none}to{opacity:0;transform:scale(.18) translateY(-16px)}}
+.search-clear{flex:0 0 auto;display:grid;place-items:center;width:26px;height:26px;border:0;border-radius:50%;
+  background:var(--surface);color:var(--ink-2);font-size:12px;line-height:1;cursor:pointer;transition:.2s}
+.search-clear:hover{background:var(--ink);color:var(--bg)}
+.search-clear:active{transform:scale(.9)}
+/* Menú flotante: mismo lenguaje que la barra inferior (vidrio + sombra) */
+.ios-menu{position:fixed;left:0;top:0;z-index:150;min-width:212px;padding:6px;
+  background:var(--nav-bg);backdrop-filter:blur(24px) saturate(1.7);-webkit-backdrop-filter:blur(24px) saturate(1.7);
+  border:1px solid var(--line);border-radius:var(--r-m);box-shadow:var(--modal-shadow);
+  opacity:0;visibility:hidden;pointer-events:none;transform:scale(.94);transform-origin:top right;
+  transition:opacity .16s var(--ease),transform .22s var(--ease-spring)}
+.ios-menu.show{opacity:1;visibility:visible;pointer-events:auto;transform:scale(1)}
+.im-sec{font-size:11px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;padding:8px 10px 5px}
+.im-item{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;
+  border:0;background:transparent;color:var(--ink);cursor:pointer;
+  font-family:var(--sans);font-size:14px;font-weight:500;padding:10px 10px;border-radius:9px;text-align:left}
+.ios-menu.show .im-item,.ios-menu.show .im-sec{animation:imIn .3s var(--ease) both;animation-delay:calc(var(--i,0)*22ms)}
+@keyframes imIn{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
+.im-item:hover{background:var(--surface-2)}
+.im-item:active{background:var(--surface-2);transform:scale(.99)}
+.im-check{width:16px;height:16px;flex:0 0 auto;opacity:0;color:var(--ink)}
+.im-item.on{font-weight:650}
+.im-item.on .im-check{opacity:1}
+.im-div{height:1px;background:var(--line);margin:5px 8px}
+
+/* ── Campo de fecha: botón con la fecha + calendario de la app §5 ───────── */
+.date-field{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:42px;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--ink);border-radius:var(--r-s);
+  padding:10px 12px;font-family:var(--sans);font-size:14px;font-weight:500;text-align:left;cursor:pointer;
+  transition:border-color .2s var(--ease),background .2s var(--ease)}
+.date-field:hover{border-color:var(--ink-3)}
+.date-field:active{transform:scale(.99)}
+.date-field .df-txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.date-field svg{width:17px;height:17px;flex:0 0 auto;color:var(--ink-2)}
+/* El calendario de estos campos flota sobre el modal (el de la cabecera va anclado) */
+.cal-pop.dp{position:fixed;left:0;top:0;transform:translateY(-6px) scale(.98);z-index:150}
+.cal-pop.dp.show{transform:none}
 
 /* ── Rueda de color ───────────────────────────────────────────────────── */
 .cw-pop{position:fixed;z-index:10000;width:236px;padding:16px;border-radius:var(--r-m);
@@ -528,8 +622,8 @@ html[data-theme="dark"] .segmented:not(.ink-ready) button.active{background:var(
 .pend-pill.completed{background:var(--pos-bg);color:var(--pos)}
 .pend-pill.overdue{background:var(--neg-bg);color:var(--neg)}
 .pend-pill.pending{background:var(--warn-bg);color:var(--warn)}
-.pend-acts{display:flex;gap:4px;flex:0 0 auto}
-.pend-act{width:34px;height:34px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--ink-2);cursor:pointer;font-size:14px;display:grid;place-items:center;transition:.2s}
+.pend-acts{display:flex;gap:8px;flex:0 0 auto}
+.pend-act{position:relative;width:34px;height:34px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--ink-2);cursor:pointer;font-size:14px;display:grid;place-items:center;transition:.2s}
 .pend-act:hover{background:var(--surface-2);color:var(--ink);border-color:var(--ink-3)}
 .pend-act.done:hover{color:var(--pos);border-color:var(--pos)}
 .pend-act.del:hover{color:var(--neg);border-color:var(--neg)}
@@ -582,7 +676,7 @@ html[data-theme="dark"] .segmented:not(.ink-ready) button.active{background:var(
 .bi-info{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
 .bi-name{font-weight:600;font-size:14px;color:var(--ink)}
 .bi-sub{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.bi-acts{display:flex;gap:4px;flex:0 0 auto}
+.bi-acts{display:flex;gap:8px;flex:0 0 auto}
 .bi-def{padding:7px 12px;font-size:12.5px;flex:0 0 auto;white-space:nowrap}
 .bi-foot{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2);margin-top:2px}
 .bi-foot.muted{margin-top:4px}
@@ -719,7 +813,7 @@ html[data-theme="dark"] .segmented:not(.ink-ready) button.active{background:var(
     display:flex;align-items:center;justify-content:space-between;
     position:fixed;left:50%;transform:translateX(-50%);
     bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:90;
-    width:min(calc(100% - 48px),360px);height:64px;
+    width:min(calc(100% - 28px),400px);height:64px;
     padding:6px;gap:2px;
     background:var(--nav-bg);
     backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);
@@ -731,18 +825,20 @@ html[data-theme="dark"] .segmented:not(.ink-ready) button.active{background:var(
   .bottomnav{transition:transform .34s var(--ease),background-color .3s ease,border-color .3s ease;will-change:transform}
   .bottomnav.bars-hidden{transform:translateX(-50%) translateY(calc(120% + 24px + env(safe-area-inset-bottom,0px)))}
   body.bars-hidden .fab{opacity:0;transform:translateY(16px);pointer-events:none}
-  .bn-item{position:relative;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:0;
+  .bn-item{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;
     border:0;background:transparent;color:var(--ink-3);
     font-family:var(--sans);font-size:12px;font-weight:600;
-    height:52px;min-width:52px;padding:0 12px;cursor:pointer;border-radius:var(--r-pill);
+    height:52px;flex:1 1 0;min-width:0;padding:0;cursor:pointer;border-radius:var(--r-pill);
     transition:color .2s var(--ease),background .25s var(--ease-soft);
     -webkit-tap-highlight-color:transparent}
   .bn-item svg{width:24px;height:24px;flex:0 0 auto;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;transition:transform .18s var(--ease-spring)}
-  /* Píldora morfante: el activo se expande y muestra su etiqueta */
-  .bn-item span{max-width:0;opacity:0;overflow:hidden;white-space:nowrap;
-    transition:max-width .25s var(--ease-soft),opacity .2s var(--ease),margin .25s var(--ease-soft)}
+  /* Todos los destinos miden lo mismo (es lo que deja el + justo al centro) y el
+     nombre del activo va DEBAJO del icono, que es lo que cabe en esa columna. */
+  .bn-item span{display:none;font-size:10.5px;line-height:1;margin-top:4px;
+    max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .bn-item.active{color:var(--ink);background:var(--surface-2)}
-  .bn-item.active span{max-width:90px;opacity:1;margin-left:7px}
+  .bn-item.active span{display:block}
+  .bn-item.active svg{transform:translateY(-2px)}
   .bn-item:active svg{transform:scale(.9)}
   .app-body{padding-bottom:calc(112px + env(safe-area-inset-bottom,0px))}
   #toasts{top:calc(14px + env(safe-area-inset-top,0px))}
@@ -759,7 +855,13 @@ html[data-theme="dark"] .segmented:not(.ink-ready) button.active{background:var(
   .btn-label{display:none}
   .notify-top,.export-top,.add-btn{padding:9px 12px}
   .add-btn .plus{font-size:18px}
-  .subbar{flex-direction:column;align-items:stretch;gap:10px}
+  .subbar{flex-direction:column;align-items:stretch;gap:8px;margin-bottom:12px}
+  .appbar{margin-bottom:10px}
+  .appbar-inner{min-height:52px;padding-top:calc(9px + env(safe-area-inset-top,0px));padding-bottom:9px}
+  .nav-arrow{width:32px;height:32px;font-size:18px}
+  .period-label{min-width:0;flex:1;font-size:13.5px;padding:7px 8px}
+  #periodSeg{padding:3px}
+  #periodSeg button{padding:6px 10px;font-size:12.5px}
   .period-nav{justify-content:center}
   #periodSeg{margin-left:0;width:100%}
   #periodSeg button{flex:1}
@@ -767,7 +869,11 @@ html[data-theme="dark"] .segmented:not(.ink-ready) button.active{background:var(
   #histTypeSeg button,#historySeg button,#pendSeg button{flex:1;min-width:0;padding:8px 4px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* Modales → bottom sheets §5.7 con asa de arrastre */
   .modal-backdrop{align-items:flex-end}
-  .modal{width:100%;max-width:560px;border-radius:var(--r-xl) var(--r-xl) 0 0;max-height:92vh;transform:translateY(40px);margin-bottom:0;padding-top:6px}
+  /* Con el teclado abierto la hoja sube y hace scroll dentro, en vez de
+     quedar debajo del teclado y obligar a buscar los campos a ciegas. */
+  .modal{width:100%;max-width:560px;border-radius:var(--r-xl) var(--r-xl) 0 0;
+    max-height:calc(92dvh - var(--kb,0px));transform:translateY(40px);
+    margin-bottom:var(--kb,0px);padding-top:6px}
   .modal::before{content:"";display:block;width:36px;height:4px;border-radius:var(--r-pill);background:var(--ink-3);opacity:.4;margin:6px auto 0}
   #confirmModal{border-radius:var(--r-l)}
   #confirmModal::before{display:none}
@@ -868,10 +974,11 @@ html[data-theme="dark"] .theme-ico .ico-moon{transform:rotate(0) scale(1);opacit
 .fab{display:none}
 @media(max-width:680px){
   .appbar-actions .add-btn{display:none}
-  .fab{display:grid;place-items:center;position:fixed;right:20px;
-    bottom:calc(94px + env(safe-area-inset-bottom,0px));z-index:95;
-    width:56px;height:56px;border-radius:50%;border:0;cursor:pointer;
-    background:var(--accent);color:var(--on-accent);box-shadow:var(--modal-shadow);
+  /* Vive DENTRO de la píldora de navegación: flotando se montaba encima de los
+     botones de las tarjetas (eliminar/editar) y de los importes a la derecha. */
+  .fab{display:grid;place-items:center;position:static;flex:0 0 46px;margin:0 4px;
+    width:46px;height:46px;border-radius:50%;border:0;cursor:pointer;
+    background:var(--accent);color:var(--on-accent);box-shadow:none;
     transition:transform .18s var(--ease-spring),opacity .2s var(--ease)}
   .fab:active{transform:scale(.92)}
   .fab .plus{font-size:26px;line-height:1;display:inline-block;transition:transform .35s var(--ease-spring)}

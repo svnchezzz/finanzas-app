@@ -31,7 +31,7 @@ const S={
   recur:{id:null,type:'Expense',category:null,color:null,source:''},
   goal:{id:null,color:'#8B5CF6'},
   confirmCb:null,
-  histSearch:'', histType:'all'
+  histSearch:'', histType:'all', histLimit:50
 };
 
 /* Color de un token CSS del tema activo (para canvas/Chart.js, que no acepta var()) */
@@ -153,7 +153,7 @@ function writeTicker(el,n){
   if(!el)return;
   const v=Math.round(n||0);
   const str=nf_().format(Math.abs(v));
-  const sign=(v<0?'-':'')+S.settings.currencySymbol;
+  const sign=(v<0?'−':'')+S.settings.currencySymbol;
   const fresh=(el._tkStr==null)||(el._tkStr.length!==str.length)||!el.querySelector('.tk-col');
   if(fresh){
     let html='<span class="cur-sym"></span><span class="tk-num">';
@@ -232,13 +232,13 @@ function nf_(){
 }
 function money(n){
   const v=Math.round(n||0);
-  return (v<0?'-':'')+S.settings.currencySymbol+' '+nf_().format(Math.abs(v));
+  return (v<0?'−':'')+S.settings.currencySymbol+' '+nf_().format(Math.abs(v));
 }
 /* Versión con el símbolo de moneda más pequeño y atenuado (look fintech).
    Solo para sitios donde escribimos HTML (KPIs, centro de donas). */
 function moneyHTML(n){
   const v=Math.round(n||0);
-  return (v<0?'-':'')+'<span class="cur-sym">'+esc(S.settings.currencySymbol)+'</span>'+nf_().format(Math.abs(v));
+  return (v<0?'−':'')+'<span class="cur-sym">'+esc(S.settings.currencySymbol)+'</span>'+nf_().format(Math.abs(v));
 }
 /* Escribe el valor actualizando SOLO nodos de texto (sin re-parsear HTML cada frame).
    Mucho más barato para la animación de conteo en WebView de celular. */
@@ -248,7 +248,7 @@ function writeMoney(el,n){
     el._symEl=el.querySelector('.cur-sym'); el._numEl=el.querySelector('.cur-num');
   }
   const v=Math.round(n||0);
-  el._symEl.textContent=(v<0?'-':'')+S.settings.currencySymbol;
+  el._symEl.textContent=(v<0?'−':'')+S.settings.currencySymbol;
   el._numEl.textContent=nf_().format(Math.abs(v));
 }
 function groupDigits(str){const d=String(str).replace(/\D/g,'');if(!d)return '';return new Intl.NumberFormat(S.settings.locale||'es-CO').format(parseInt(d,10));}
@@ -365,6 +365,12 @@ function isFromSavings(t){return t.type==='Expense'&&t.source==='Savings';}
 function fromSavingsSum(list){return list.filter(isFromSavings).reduce(function(a,t){return a+t.amount;},0);}
 /* Ahorro neto del periodo = aportes − lo gastado desde el ahorro */
 function savingsNet(list){return sumType(list,'Savings')-fromSavingsSum(list);}
+/* Ahorro acumulado hasta esa fecha: es un SALDO, no el flujo del periodo. Pagar
+   con ahorro de meses anteriores baja el saldo, pero solo queda en negativo si
+   se saca más de lo que hay (ej. 190.000 ahorrados − 200.000 = −10.000). */
+function savingsBalance(end){
+  return savingsNet(allMovements().filter(function(t){return parseYMD(t.date)<=end;}));
+}
 /* Disponible global y estático = todo el dinero que tienes (ingresos − gastos, histórico) */
 function globalDisponible(){const all=allMovements();return sumType(all,'Income')-sumType(all,'Expense');}
 /* Ahorro que salió de tu bolsillo (no el de "Otra fuente"), neto de lo gastado desde el ahorro.
@@ -377,6 +383,19 @@ function pocketSavingsNet(){
 /* Disponible real = ingresos − gastos − lo que apartaste en ahorro desde tu bolsillo.
    Es la plata que realmente te queda libre para gastar o aportar a metas. */
 function disponibleReal(){return globalDisponible()-pocketSavingsNet();}
+
+/* ── Bolsillos del ahorro ────────────────────────────────────────────────
+   El ahorro total se reparte entre las metas (lo que cada una lleva guardado)
+   y el "ahorro general", que es lo que no está apartado en ninguna meta. Un
+   gasto pagado con ahorro tiene que salir de uno de esos bolsillos. */
+function goalsSavedTotal(){return (S.goals||[]).reduce(function(a,g){return a+Math.max(0,g.saved||0);},0);}
+function ahorroGeneral(){return Math.max(0,savingsNet(allMovements())-goalsSavedTotal());}
+/* Saldo del bolsillo elegido: '' (o nulo) = ahorro general; si no, el id de la meta. */
+function saldoBolsilloAhorro(goalId){
+  if(!goalId)return ahorroGeneral();
+  const g=(S.goals||[]).find(function(x){return String(x.id)===String(goalId);});
+  return g?Math.max(0,g.saved||0):0;
+}
 
 /* ── Arranque (lo llama db.js después del login) ── */
 // Hace que la WebView ocupe TODA la pantalla (detrás de la barra de estado).
@@ -439,7 +458,8 @@ function wireUI(){
   document.getElementById('nextPeriod').onclick=function(){S.ref=shiftRef(S.ref,S.period,1);deferRender();};
   document.getElementById('periodLabel').onclick=function(e){e.stopPropagation();toggleCal();};
   document.querySelector('.viewtabs').addEventListener('click',function(e){const b=e.target.closest('.vtab');if(!b)return;switchView(b.dataset.view,b);});
-  document.getElementById('historySeg').addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;setSeg('historySeg',b);S.histGrain=b.dataset.grain;renderHistory();});
+  const hg=document.getElementById('historyGrain');
+  if(hg){hg.value=S.histGrain;hg.addEventListener('change',function(){S.histGrain=hg.value;histReset_();renderHistory();});}
 
   document.getElementById('addBtn').onclick=openActionMenu;
   document.getElementById('actionBackdrop').addEventListener('click',function(e){
@@ -454,6 +474,8 @@ function wireUI(){
   document.getElementById('amountInput').addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);});
   document.getElementById('sourceSeg').addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;setSeg('sourceSeg',b);S.modal.source=b.dataset.source;
     document.getElementById('sourceHint').textContent=b.dataset.source==='Salary'?'Se descuenta de tu disponible actual.':'Es un nuevo ingreso (no afecta tu disponible actual).';});
+  document.getElementById('fromSavings').addEventListener('change',function(){setupExpGoalRow_();});
+  wireDateFields(); trackKeyboard();
   document.getElementById('newCatSave').onclick=onNewCategoryInModal;
   document.getElementById('chipRow').addEventListener('click',function(e){
     const add=e.target.closest('.add-chip');
@@ -517,27 +539,8 @@ function wireUI(){
   document.getElementById('editCatSwatches').addEventListener('click',function(e){const s=e.target.closest('.swatch');if(!s)return;S.editCat.color=s.dataset.color;markSwatch('editCatSwatches',S.editCat.color);updateEditCatPreview();});
   wireColorWheel('editCatSwatchesCustom',function(){return S.editCat.color;},function(c){S.editCat.color=c;markSwatch('editCatSwatches',c);updateEditCatPreview();});
 
-  // Búsqueda / filtro en historial
-  const hs=document.getElementById('histSearch');
-  if(hs)hs.addEventListener('input',function(e){S.histSearch=e.target.value;renderHistory();});
-  // Búsqueda colapsable: solo la lupa; clic la despliega, clic en la lupa de nuevo la esconde
-  const searchBox=document.querySelector('#view-history .search-box');
-  if(hs&&searchBox){
-    searchBox.addEventListener('click',function(e){
-      if(!searchBox.classList.contains('expanded')){     // colapsada => desplegar
-        searchBox.classList.add('expanded');
-        setTimeout(function(){hs.focus({preventScroll:true});},60);
-        return;
-      }
-      if(e.target.closest('.search-ico')){               // abierta y clic en la lupa => esconder
-        searchBox.classList.remove('expanded');
-        if(hs.value.trim()){ hs.value=''; S.histSearch=''; renderHistory(); }
-        hs.blur();
-      }
-    });
-  }
-  const htf=document.getElementById('histTypeSeg');
-  if(htf)htf.addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;setSeg('histTypeSeg',b);S.histType=b.dataset.ht;renderHistory();});
+  // Historial: cabecera, buscador y menú de filtros
+  wireHistHead();
 
   // Confirmación reutilizable
   document.getElementById('confirmCancel').onclick=closeConfirm;
@@ -676,6 +679,7 @@ function closeConfirm(){const bk=document.getElementById('confirmBackdrop');bk.c
 
 /* ── Vistas ── */
 function switchView(view,btn){
+  if(view==='history'&&S.view!=='history')histReset_();
   S.view=view;
   document.querySelectorAll('.vtab').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');
   ['dashboard','history','pending','categories','budgets','recurring','goals'].forEach(function(v){const el=document.getElementById('view-'+v);if(el)el.classList.toggle('hidden',v!==view);});
@@ -697,7 +701,7 @@ function goToView(view){
 }
 /* Resaltar el ítem correcto en la barra inferior (los secundarios marcan "Más") */
 function syncBottomNav(view){
-  const main=['dashboard','history','pending','goals'];
+  const main=['dashboard','history','goals'];
   document.querySelectorAll('.bn-item').forEach(function(b){
     if(b.id==='bnMore')b.classList.toggle('active',main.indexOf(view)===-1);
     else b.classList.toggle('active',b.dataset.view===view);
@@ -734,13 +738,17 @@ function renderDashboard(){
   if(dash)dash.classList.toggle('is-empty',!hasAny);
   if(!hasAny)return;
   const list=periodTx();
-  const inc=sumType(list,'Income'),exp=sumType(list,'Expense'),sav=savingsNet(list),bal=disponibleReal();
+  const inc=sumType(list,'Income'),exp=sumType(list,'Expense'),bal=disponibleReal();
+  // Ingresos y gastos son del periodo; el ahorro es el saldo acumulado al cierre
+  // del periodo que se está viendo (savPer es el movimiento del ahorro en él).
+  const sav=savingsBalance(periodBounds(S.ref,S.period).end), savPer=savingsNet(list);
   countUp('income',inc);countUp('expense',exp);countUp('savings',sav);countUp('balance',bal);
   setSub('income',countOf(list,'Income'));setSub('expense',countOf(list,'Expense'));
   const fs=fromSavingsSum(list);
-  setSub('savings',fs>0?('−'+money(fs)+' desde ahorro'):countOf(list,'Savings'));
+  setSub('savings',fs>0?('−'+money(fs)+' desde ahorro este periodo')
+    :(savPer>0?('+'+money(savPer)+' este periodo'):'Total acumulado'));
   renderDeltas(inc,exp,sav);
-  setSub('balance',smartLine(exp,sav));
+  setSub('balance',smartLine(exp,savPer));
   ['Expense','Income','Savings'].forEach(renderDonut);
   renderTrend();
   renderPendChart();
@@ -753,7 +761,10 @@ function prevPeriodTx(){
 }
 function renderDeltas(inc,exp,sav){
   const prev=prevPeriodTx();
-  const pInc=sumType(prev,'Income'), pExp=sumType(prev,'Expense'), pSav=savingsNet(prev);
+  const pInc=sumType(prev,'Income'), pExp=sumType(prev,'Expense');
+  // El ahorro se compara contra el saldo al cierre del periodo anterior (cuánto
+  // creció o bajó tu ahorro), no contra lo aportado en ese periodo.
+  const pSav=savingsBalance(periodBounds(shiftRef(S.ref,S.period,-1),S.period).end);
   setDelta('income',inc,pInc,true);
   setDelta('expense',exp,pExp,false);   // en gastos, subir es "malo" → rojo
   setDelta('savings',sav,pSav,true);
@@ -1048,8 +1059,106 @@ function historyItems(){
   });
   return tx.concat(pend);
 }
+/* ── Cabecera del historial: menú flotante de filtros (estilo iOS) ──────────
+   Los filtros no ocupan una barra fija: salen de un botón redondo, con palomita
+   en la opción activa, y el filtro vigente se lee como subtítulo del título. */
+const HIST_TIPOS=[['all','Todos'],['Income','Ingresos'],['Expense','Gastos'],['Savings','Ahorro']];
+const HIST_GRANOS=[['day','Por día'],['week','Por semana'],['month','Por mes'],['year','Por año']];
+function histLabel_(lista,val){for(var i=0;i<lista.length;i++)if(lista[i][0]===val)return lista[i][1];return '';}
+function histSyncHead(){
+  const activo=(S.histType&&S.histType!=='all')||!!S.histSearch;
+  // El botón se pinta del color del tipo filtrado (verde ingreso, rojo gasto,
+  // azul ahorro); el punto rojo queda solo para la búsqueda sin tipo.
+  const fb=document.getElementById('histFilterBtn');
+  if(fb){
+    fb.classList.remove('t-Income','t-Expense','t-Savings');
+    if(S.histType&&S.histType!=='all')fb.classList.add('t-'+S.histType);
+    const dot=fb.querySelector('.rb-dot');
+    if(dot)dot.hidden=!(!!S.histSearch&&(!S.histType||S.histType==='all'));
+  }
+}
+function histMenuHTML(){
+  var i=0;
+  function fila(grupo,val,txt,actual){
+    return '<button type="button" class="im-item'+(val===actual?' on':'')+'" style="--i:'+(i++)+'" data-'+grupo+'="'+val+'">'+
+      '<span>'+txt+'</span><svg class="im-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></button>';
+  }
+  return '<div class="im-sec">Mostrar</div>'+
+    HIST_TIPOS.map(function(t){return fila('ht',t[0],t[1],S.histType||'all');}).join('')+
+    '<div class="im-div"></div><div class="im-sec">Agrupar por</div>'+
+    HIST_GRANOS.map(function(g){return fila('grain',g[0],g[1],S.histGrain);}).join('');
+}
+function histMenuToggle(force){
+  const pop=document.getElementById('histMenu'), btn=document.getElementById('histFilterBtn');
+  const abrir=(force!==undefined)?force:!pop.classList.contains('show');
+  if(abrir){
+    pop.innerHTML=histMenuHTML();
+    pop.classList.add('show'); btn.setAttribute('aria-expanded','true');
+    const r=btn.getBoundingClientRect();
+    requestAnimationFrame(function(){
+      const w=pop.offsetWidth, pad=10;
+      pop.style.left=Math.max(pad,Math.min(r.right-w,window.innerWidth-pad-w))+'px';
+      pop.style.top=(r.bottom+8)+'px';
+    });
+  }else{ pop.classList.remove('show'); btn.setAttribute('aria-expanded','false'); }
+}
+/* Abrir/cerrar el buscador. Explícito, no alternando: así dos llamadas seguidas
+   no lo dejan al revés. Se despliega desde la lupa (ver .hist-search en el CSS). */
+function histSearchOpen(abrir){
+  const row=document.getElementById('histSearchRow'), btn=document.getElementById('histSearchBtn'),
+        inp=document.getElementById('histSearch');
+  if(!row||!btn)return;
+  if(abrir){
+    row.classList.remove('hidden','out');
+    setTimeout(function(){inp.focus({preventScroll:true});},80);
+  }else{
+    if(inp&&inp.value){inp.value='';S.histSearch='';histReset_();histSyncHead();renderHistory();}
+    if(inp)inp.blur();
+    row.classList.add('out');
+    setTimeout(function(){row.classList.add('hidden');row.classList.remove('out');},170);
+  }
+  btn.classList.toggle('on',abrir); btn.setAttribute('aria-expanded',String(abrir));
+}
+/* El círculo rebota al cambiar de tipo, para que se note que tomó su color */
+function popFiltro_(){
+  const b=document.getElementById('histFilterBtn'); if(!b)return;
+  b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop');
+  setTimeout(function(){b.classList.remove('pop');},480);
+}
+function wireHistHead(){
+  const btn=document.getElementById('histFilterBtn'), pop=document.getElementById('histMenu'),
+        sBtn=document.getElementById('histSearchBtn'),
+        row=document.getElementById('histSearchRow'), inp=document.getElementById('histSearch'),
+        clr=document.getElementById('histSearchClear');
+  if(!btn||!pop)return;
+  btn.onclick=function(e){e.stopPropagation();if(window.Haptic&&Haptic.light)Haptic.light();histMenuToggle();};
+  pop.addEventListener('click',function(e){
+    const it=e.target.closest('.im-item'); if(!it)return;
+    if(window.Haptic&&Haptic.light)Haptic.light();
+    if(it.dataset.ht!==undefined){
+      const cambio=S.histType!==it.dataset.ht; S.histType=it.dataset.ht;
+      if(cambio)popFiltro_();
+    }else S.histGrain=it.dataset.grain;
+    histReset_(); histMenuToggle(false); histSyncHead(); renderHistory();
+  });
+  document.addEventListener('pointerdown',function(e){
+    if(pop.classList.contains('show')&&!pop.contains(e.target)&&!btn.contains(e.target))histMenuToggle(false);
+  },true);
+  if(sBtn)sBtn.onclick=function(){histSearchOpen(row.classList.contains('hidden'));};
+  if(inp)inp.addEventListener('input',function(e){S.histSearch=e.target.value;histReset_();histSyncHead();renderHistory();});
+  // La X cierra la barra (y de paso limpia): antes solo borraba el texto y además
+  // quedaba de 0px, así que no se podía tocar.
+  if(clr)clr.onclick=function(e){e.stopPropagation();histSearchOpen(false);};
+  histSyncHead();
+}
+function histReset_(){S.histLimit=50;}
 function renderHistory(){
+  histSyncHead();
   const grain=S.histGrain, wrap=document.getElementById('historyList');
+  // Al pulsar "Ver más" se repinta la lista completa: sin esto la animación de
+  // entrada vuelve a correr en todos los grupos y se ve un parpadeo.
+  const ampliando=!!S._histAppend; S._histAppend=false;
+  wrap.classList.toggle('no-anim',ampliando);
   let MOV=historyItems();
   // filtro por tipo
   if(S.histType&&S.histType!=='all')MOV=MOV.filter(function(t){return t.type===S.histType;});
@@ -1060,6 +1169,12 @@ function renderHistory(){
       || String(t.note||'').toLowerCase().indexOf(q)>=0
       || String(t.method||'').toLowerCase().indexOf(q)>=0;
   });
+  // Ordenado global (lo más nuevo primero) para poder cortar en 50 sin descuadrar
+  // los grupos: pintar cientos de filas en cada render hace lento el historial.
+  MOV.sort(function(a,b){return (a.date+(a.timestamp||''))<(b.date+(b.timestamp||''))?1:-1;});
+  const total=MOV.length, tope=S.histLimit||50;
+  const resto=Math.max(0,total-tope);
+  if(resto)MOV=MOV.slice(0,tope);
   if(!MOV.length){wrap.innerHTML=(q||S.histType!=='all')?emptyState(ICON.receipt,'Sin resultados','No hay movimientos para este filtro o búsqueda.'):emptyState(ICON.receipt,'Sin movimientos','Aún no registras nada en este periodo.');return;}
   const groups={};
   MOV.forEach(function(t){
@@ -1076,11 +1191,20 @@ function renderHistory(){
     const real=g.items.filter(function(x){return x._real;});
     const inc=sumType(real,'Income'),exp=sumType(real,'Expense'),sav=sumType(real,'Savings'),net=inc-exp-sav;
     let block='<div class="hist-group" style="animation-delay:'+(gi*40)+'ms">';
-    block+='<div class="hist-group-head"><span class="hist-group-title">'+histGroupTitle(grain,k)+'</span><span class="hist-group-net" style="color:'+(net>=0?'var(--pos)':'var(--neg)')+'">'+money(net)+' neto</span></div>';
+    // 8 · un grupo donde todo está por cobrar/pagar no tiene "neto": decir "$ 0"
+    // hacía pensar que el movimiento no valía nada.
+    const nPend=g.items.length-real.length;
+    const chip=real.length
+      ? '<span class="hist-group-net" style="color:'+(net>=0?'var(--pos)':'var(--neg)')+'">'+money(net)+' neto</span>'
+      : '<span class="hist-group-net pend">'+nPend+(nPend===1?' pendiente':' pendientes')+'</span>';
+    block+='<div class="hist-group-head"><span class="hist-group-title">'+histGroupTitle(grain,k)+'</span>'+chip+'</div>';
     if(grain==='year')block+='<div class="year-summary">'+ysCell('Ingresos',inc,'var(--pos)')+ysCell('Gastos',exp,'var(--neg)')+ysCell('Ahorro',sav,'var(--sav)')+'</div>';
     else block+='<div class="hist-rows">'+g.items.map(rowHTML).join('')+'</div>';
     block+='</div>'; return block;
-  }).join('');
+  }).join('')
+  + (resto?'<button class="btn-ghost hist-more" id="histMore">Ver '+Math.min(50,resto)+' más · quedan '+resto+'</button>':'');
+  const more=document.getElementById('histMore');
+  if(more)more.onclick=function(){S._histAppend=true;S.histLimit=(S.histLimit||50)+50;renderHistory();};
   wrap.querySelectorAll('.hr-del').forEach(function(b){b.onclick=function(){
     if(b.dataset.pend)removePending(b.dataset.pend); else removeTx(b.dataset.id);
   };});
@@ -1097,17 +1221,20 @@ function histGroupTitle(grain,key){
 }
 function rowHTML(t){
   const d=parseYMD(t.date);
-  let meta=DOW[d.getDay()]+' '+d.getDate()+' '+MON[d.getMonth()];
-  if(t._fromPending)meta+=' · '+(t.type==='Income'?'por cobrar':'por pagar')+(t.method?' · '+esc(t.method):'');
-  if(t.note)meta+=' · '+esc(t.note);
-  if(t.source)meta+=' · '+(t.source==='Salary'?'Disponible actual':t.source==='Other'?'Nuevo ingreso':t.source==='Savings'?'desde ahorro':t.source);
+  // Agrupado por día, el encabezado ya dice la fecha: repetirla en cada fila solo
+  // gasta la línea que sirve para la nota, el método o el origen del dinero.
+  let meta=(S.histGrain==='day')?'':(DOW[d.getDay()]+' '+d.getDate()+' '+MON[d.getMonth()]);
+  const sep=function(){return meta?' · ':'';};
+  if(t._fromPending)meta+=sep()+(t.type==='Income'?'por cobrar':'por pagar')+(t.method?' · '+esc(t.method):'');
+  if(t.note)meta+=sep()+esc(t.note);
+  if(t.source)meta+=sep()+(t.source==='Salary'?'Disponible actual':t.source==='Other'?'Nuevo ingreso':t.source==='Savings'?'desde ahorro':t.source);
   const sign=t.type==='Income'?'+':'−';
   const del=t._fromPending?'data-pend="'+t._pendId+'"':'data-id="'+t.id+'"';
   const rowCls='hist-row'+(t._fromPending?' is-pend':'')+(t._fromPending&&t._pendKey!=='completed'?' is-unrealized':'');
   const statePill=t._fromPending?'<span class="hr-state '+t._pendKey+'">'+t._pendLabel+'</span>':'';
   return '<div class="'+rowCls+'"><span class="hr-ava" style="background:'+safeColor(t.color)+'22;color:'+safeColor(t.color)+'">'+catIcon(t.category,t.type)+'</span>'+
     '<div class="hr-main"><span class="hr-cat">'+esc(t.category)+statePill+'</span><span class="hr-meta">'+meta+'</span></div>'+
-    '<span class="hr-amt '+t.type+'">'+sign+' '+money(t.amount)+'</span>'+
+    '<span class="hr-amt '+t.type+'">'+sign+money(t.amount)+'</span>'+
     '<button class="hr-edit" '+del+' title="Editar" aria-label="Editar">'+ICON.edit+'</button>'+
     '<button class="hr-del" '+del+' title="Eliminar" aria-label="Eliminar">'+ICON.trash+'</button></div>';
 }
@@ -1299,7 +1426,7 @@ function openPendModal(editId){
   document.getElementById('pendTitle').textContent=editing?'Editar pendiente':'Ingreso / Pago pendiente';
   document.getElementById('pendCur').textContent=S.settings.currencySymbol;
   document.getElementById('pendAmount').value=p?groupDigits(String(p.amount)):'';
-  document.getElementById('pendDate').value=p&&p.dueDate?p.dueDate:ymd(new Date());
+  setDate_('pendDate',p&&p.dueDate?p.dueDate:ymd(new Date()));
   document.getElementById('pendMethod').value=p?(p.method||'Transferencia'):'Transferencia';
   document.getElementById('pendNote').value=p?(p.note||''):'';
   document.getElementById('pendDone').checked=p?p.status==='completed':false;
@@ -1403,7 +1530,7 @@ function openModal(type,editId){
   document.getElementById('curSign').textContent=S.settings.currencySymbol;
   document.getElementById('amountInput').value=editing?groupDigits(String(tx.amount)):'';
   document.getElementById('noteInput').value=editing?(tx.note||''):'';
-  document.getElementById('dateInput').value=editing?tx.date:ymd(new Date());
+  setDate_('dateInput',editing?tx.date:ymd(new Date()));
   document.getElementById('newCatRow').classList.remove('show'); document.getElementById('newCatInput').value='';
   document.getElementById('txColorRow').classList.add('hidden');
   document.getElementById('sourceRow').classList.toggle('hidden',type!=='Savings');
@@ -1414,6 +1541,7 @@ function openModal(type,editId){
   if(type==='Savings')S.modal.source=srcVal;
   document.getElementById('sourceHint').textContent=srcVal==='Salary'?'Se descuenta de tu disponible actual.':'Es un nuevo ingreso (no afecta tu disponible actual).';
   setupGoalRow_(type,editing);
+  setupExpGoalRow_((editing&&tx&&tx.source==='Savings'&&tx._goalId)?String(tx._goalId):'');
   buildChips(type); buildSwatches();
   if(editing){
     S.modal.category=tx.category; S.modal.color=tx.color;
@@ -1448,6 +1576,49 @@ function setupGoalRow_(type, editing){
   sel.onchange=function(){ document.getElementById('txNewGoalRow').classList.toggle('hidden', sel.value!=='__new__'); };
   if(tgtI && !tgtI._wired){ tgtI._wired=true; tgtI.addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);}); }
 }
+/* ── ¿De qué bolsillo del ahorro sale un gasto pagado con ahorro? ──
+   Se muestra solo cuando el gasto está marcado como "pagar con el ahorro".
+   preselect: id de meta a dejar elegida ('' = ahorro general). Si no se pasa,
+   conserva lo que ya estuviera seleccionado. */
+function setupExpGoalRow_(preselect){
+  const row=document.getElementById('expGoalRow'); if(!row) return;
+  const chk=document.getElementById('fromSavings');
+  const show=(S.modal.type==='Expense' && chk && chk.checked);
+  row.classList.toggle('hidden', !show);
+  const sel=document.getElementById('expGoalSelect'); if(!sel) return;
+  // Se reconstruye aunque esté oculto: así no queda elegida la meta de un
+  // movimiento anterior cuando se vuelve a marcar "pagar con el ahorro".
+  const want=(preselect==null)?(sel.value||''):String(preselect);
+  let opts='<option value="">Ahorro general ('+money(ahorroGeneral())+' disponible)</option>';
+  (S.goals||[]).forEach(function(g){
+    opts+='<option value="'+esc(String(g.id))+'">'+esc(g.name)+' ('+money(g.saved)+' disponible)</option>';
+  });
+  sel.innerHTML=opts;
+  sel.value=want; if(sel.selectedIndex<0)sel.value='';
+  sel.onchange=updateExpGoalHint_;
+  updateExpGoalHint_();
+}
+function updateExpGoalHint_(){
+  const sel=document.getElementById('expGoalSelect'), hint=document.getElementById('expGoalHint');
+  if(!sel||!hint)return;
+  const g=sel.value?(S.goals||[]).find(function(x){return String(x.id)===String(sel.value);}):null;
+  hint.textContent=g
+    ? ('Se descuenta de "'+g.name+'", que tiene '+money(g.saved)+'.')
+    : ('Sale del ahorro que no está apartado en ninguna meta ('+money(ahorroGeneral())+').');
+}
+/* Id de la meta elegida como origen de un gasto pagado con ahorro ('' = general). */
+function expGoalSel_(){
+  const row=document.getElementById('expGoalRow'), sel=document.getElementById('expGoalSelect');
+  if(!row||!sel||row.classList.contains('hidden'))return '';
+  return sel.value||'';
+}
+/* Un gasto pagado con el ahorro de una meta baja lo ahorrado de esa meta. */
+function aplicarGastoDesdeMeta_(t){
+  if(!isFromSavings(t)||!t._goalId)return;
+  const g=(S.goals||[]).find(function(x){return String(x.id)===String(t._goalId);}); if(!g)return;
+  adjustGoalSaved_(g,-t.amount);
+  toast('Descontado de "'+g.name+'"','info');
+}
 function aplicarMetaAhorro_(metaSel, metaNewName, metaNewTarget, amount){
   if(!metaSel) return;
   if(window.isOffline && window.isOffline()){
@@ -1467,6 +1638,108 @@ function aplicarMetaAhorro_(metaSel, metaNewName, metaNewTarget, amount){
       .catch(function(){g.saved=prev;if(S.view==='goals')renderGoals();toast('No se pudo sumar a la meta','err');});
   }
 }
+/* ── Calendario propio para los campos de fecha ──────────────────────────
+   Sustituye al selector nativo del sistema: se veía ajeno a la app y en el
+   celular abre el diálogo del SO. Mismo look que el calendario de la cabecera. */
+var DatePick=(function(){
+  var pop,view,cur,cb,openFor;
+  function build(){
+    pop=document.createElement('div'); pop.className='cal-pop dp';
+    document.body.appendChild(pop);
+    document.addEventListener('pointerdown',function(e){
+      if(pop.classList.contains('show')&&!pop.contains(e.target)&&!(openFor&&openFor.contains(e.target)))close();
+    },true);
+    window.addEventListener('resize',function(){if(pop.classList.contains('show'))close();});
+  }
+  function render(){
+    var y=view.getFullYear(), m=view.getMonth();
+    var startDow=(new Date(y,m,1).getDay()+6)%7, dim=new Date(y,m+1,0).getDate();
+    var hoy=ymd(sod(new Date())), cells='';
+    function cell(d,other){
+      var v=ymd(d);
+      return '<div class="cal-day'+(other?' other':'')+(v===hoy?' today':'')+(v===cur?' sel':'')+'" data-d="'+v+'">'+d.getDate()+'</div>';
+    }
+    for(var i=0;i<startDow;i++)cells+=cell(new Date(y,m,1-(startDow-i)),true);
+    for(var d=1;d<=dim;d++)cells+=cell(new Date(y,m,d),false);
+    var trail=(7-((startDow+dim)%7))%7;
+    for(var t=1;t<=trail;t++)cells+=cell(new Date(y,m+1,t),true);
+    var dows=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(function(x){return '<div class="cal-dow">'+x+'</div>';}).join('');
+    pop.innerHTML='<div class="cal-head">'+
+      '<div class="cal-navs"><button type="button" class="cal-nav" data-dp="py" aria-label="Año anterior">«</button><button type="button" class="cal-nav" data-dp="pm" aria-label="Mes anterior">‹</button></div>'+
+      '<div class="cal-title">'+capFirst(MESES[m])+' '+y+'</div>'+
+      '<div class="cal-navs"><button type="button" class="cal-nav" data-dp="nm" aria-label="Mes siguiente">›</button><button type="button" class="cal-nav" data-dp="ny" aria-label="Año siguiente">»</button></div>'+
+      '</div><div class="cal-grid">'+dows+cells+'</div>'+
+      '<div class="cal-foot"><button type="button" class="btn-ghost cal-today-btn">Hoy</button></div>';
+    pop.querySelectorAll('[data-dp]').forEach(function(b){b.onclick=function(e){e.preventDefault();e.stopPropagation();
+      var a=b.dataset.dp;
+      if(a==='pm')view.setMonth(view.getMonth()-1); else if(a==='nm')view.setMonth(view.getMonth()+1);
+      else if(a==='py')view.setFullYear(view.getFullYear()-1); else view.setFullYear(view.getFullYear()+1);
+      render();};});
+    pop.querySelectorAll('.cal-day').forEach(function(c){c.onclick=function(e){e.preventDefault();e.stopPropagation();pick(c.dataset.d);};});
+    pop.querySelector('.cal-today-btn').onclick=function(e){e.preventDefault();e.stopPropagation();pick(ymd(new Date()));};
+  }
+  function pick(v){var f=cb; close(); if(f)f(v);}
+  function place(){
+    var r=openFor.getBoundingClientRect(), pad=8, w=pop.offsetWidth, h=pop.offsetHeight;
+    var left=Math.min(Math.max(pad,r.left),Math.max(pad,window.innerWidth-pad-w));
+    var top=r.bottom+pad; if(top+h>window.innerHeight-pad)top=Math.max(pad,r.top-pad-h);
+    pop.style.left=left+'px'; pop.style.top=top+'px';
+  }
+  function open(trigger,value,onPick){
+    if(!pop)build();
+    openFor=trigger; cb=onPick; cur=value||ymd(new Date());
+    view=parseYMD(cur); view.setDate(1);
+    render(); pop.classList.add('show');
+    requestAnimationFrame(place);
+  }
+  function close(){if(pop)pop.classList.remove('show');cb=null;openFor=null;}
+  return {open:open,close:close};
+})();
+/* El campo de fecha es un botón con la fecha en bonito + un input oculto con el
+   valor ISO, así todo el código que lee o escribe .value sigue igual. */
+function fmtFecha_(v){if(!v)return '—';var d=parseYMD(v);return d.getDate()+' '+MON[d.getMonth()]+' '+d.getFullYear();}
+function setDate_(id,val){
+  var inp=document.getElementById(id); if(!inp)return;
+  inp.value=val||'';
+  var txt=document.querySelector('.date-field[data-for="'+id+'"] .df-txt');
+  if(txt)txt.textContent=fmtFecha_(inp.value);
+}
+function wireDateFields(){
+  document.querySelectorAll('.date-field').forEach(function(btn){
+    if(btn._wired)return; btn._wired=true;
+    btn.addEventListener('click',function(e){
+      e.preventDefault();
+      var id=btn.dataset.for, inp=document.getElementById(id);
+      DatePick.open(btn,inp?inp.value:'',function(v){setDate_(id,v);});
+    });
+  });
+}
+/* El teclado del celular no encoge la página: sin esto el modal queda debajo
+   del teclado y hay que hacer scroll a ciegas. Publica su alto en --kb. */
+function trackKeyboard(){
+  var vv=window.visualViewport; if(!vv)return;
+  var ultimo=-1;
+  function upd(){
+    // Solo el alto: mientras el teclado entra, el navegador desplaza el viewport
+    // visual y ese offsetTop transitorio hacía subir la hoja de más para luego
+    // devolverla. Con el alto solo, el valor es estable de una vez.
+    var kb=Math.max(0,Math.round(window.innerHeight-vv.height));
+    if(kb===ultimo)return; ultimo=kb;
+    document.documentElement.style.setProperty('--kb',kb+'px');
+    document.body.classList.toggle('kb-open',kb>60);
+  }
+  vv.addEventListener('resize',upd); upd();
+  // El navegador ya lleva el campo enfocado a la vista; aquí solo se corrige si
+  // de verdad quedó fuera del modal, y sin animación (si no, se ve doble salto).
+  document.addEventListener('focusin',function(e){
+    var t=e.target, m=(t&&t.closest)?t.closest('.modal'):null; if(!m)return;
+    setTimeout(function(){
+      var r=t.getBoundingClientRect(), b=m.getBoundingClientRect();
+      if(r.top<b.top+8||r.bottom>b.bottom-8){try{t.scrollIntoView({block:'nearest'});}catch(_){}}
+    },320);
+  });
+}
+
 function buildChips(type){
   const row=document.getElementById('chipRow'), cats=S.categories[type]||[];
   row.innerHTML=cats.map(function(c,i){return '<button class="chip'+(i===0?' active':'')+'" data-name="'+esc(c.name)+'" data-color="'+safeColor(c.color)+'" style="color:'+safeColor(c.color)+'"><span class="chip-ico">'+catIcon(c.name)+'</span><span style="color:var(--txt)">'+esc(c.name)+'</span></button>';}).join('')+'<button class="chip add-chip"><span class="chip-dot" style="background:currentColor"></span>Nueva</button>';
@@ -1602,12 +1875,23 @@ function saveTx(){
   const tx={type:S.modal.type,category:S.modal.category,amount:amount,color:S.modal.color||'#64748B',
     note:document.getElementById('noteInput').value.trim(),date:document.getElementById('dateInput').value||ymd(new Date()),
     source:S.modal.type==='Savings'?S.modal.source:(S.modal.type==='Expense'&&document.getElementById('fromSavings').checked?'Savings':'')};
+  // El gasto pagado con ahorro guarda de qué meta salió ('' = ahorro general).
+  if(tx.type==='Expense')tx._goalId=(tx.source==='Savings'?(expGoalSel_()||null):null);
   const editId=S.modal.id;
-  // Gasto desde el ahorro: no permitir gastar más de lo disponible (sí permite gastar exactamente el saldo)
+  // Gasto desde el ahorro: no permitir gastar más de lo que hay en el bolsillo elegido
+  // (la meta seleccionada o el ahorro general); sí permite gastar exactamente el saldo.
   if(tx.type==='Expense' && tx.source==='Savings'){
-    let disponible=savingsNet(allMovements());
-    if(editId){const prevTx=S.transactions.find(function(t){return t.id===editId;});if(prevTx&&isFromSavings(prevTx))disponible+=prevTx.amount;}
-    if(amount>disponible){toast('Saldo insuficiente · disponible '+money(disponible),'err');return;}
+    let disponible=saldoBolsilloAhorro(tx._goalId);
+    if(editId){
+      const prevTx=S.transactions.find(function(t){return t.id===editId;});
+      // Solo se devuelve el monto anterior si salía del mismo bolsillo: si cambió de
+      // bolsillo, el anterior se reintegra aparte y este saldo ya está actualizado.
+      if(prevTx&&isFromSavings(prevTx)&&String(prevTx._goalId||'')===String(tx._goalId||''))disponible+=prevTx.amount;
+    }
+    if(amount>disponible){
+      const g=tx._goalId?(S.goals||[]).find(function(x){return String(x.id)===String(tx._goalId);}):null;
+      toast('Saldo insuficiente · '+(g?'en "'+g.name+'" hay ':'en el ahorro general hay ')+money(disponible),'err');return;
+    }
   }
   // Ahorro que sale de tu bolsillo (salario/ingreso): no puede dejar tu disponible en negativo
   if(tx.type==='Savings' && tx.source!=='Other'){
@@ -1636,16 +1920,25 @@ function saveTx(){
   }else{
     const temp=Object.assign({id:'tmp-'+Date.now(),timestamp:new Date().toISOString()},tx);
     S.transactions.push(temp); S.ref=parseYMD(tx.date); renderAll();
-    gs('addTransaction',tx).then(function(saved){const i=S.transactions.findIndex(function(t){return t.id===temp.id;});if(i>=0)S.transactions[i]=saved;renderAll();successFx();toast(TXT.guardado+' · '+money(amount),'ok');aplicarMetaAhorro_(metaSel,metaNewName,metaNewTarget,amount);if(window.Notif){if(tx.type==='Expense')evalBudget(tx.category,true);scheduleDailyReminders();}})
+    gs('addTransaction',tx).then(function(saved){const i=S.transactions.findIndex(function(t){return t.id===temp.id;});if(i>=0)S.transactions[i]=saved;renderAll();successFx();toast(TXT.guardado+' · '+money(amount),'ok');aplicarMetaAhorro_(metaSel,metaNewName,metaNewTarget,amount);aplicarGastoDesdeMeta_(saved||temp);if(window.Notif){if(tx.type==='Expense')evalBudget(tx.category,true);scheduleDailyReminders();}})
       .catch(function(){S.transactions=S.transactions.filter(function(t){return t.id!==temp.id;});renderAll();toast(TXT.errGuardar,'err');});
   }
 }
-/* Encuentra la meta vinculada a un movimiento de ahorro: por _goalId (misma sesión)
-   o por nombre de categoría (las aportaciones a meta usan el nombre de la meta). */
+/* Encuentra la meta vinculada a un movimiento: por _goalId (aportes/retiros de
+   meta y gastos pagados con el ahorro de una meta) o, para los ahorros, por
+   nombre de categoría (las aportaciones a meta usan el nombre de la meta). */
 function goalForTx_(t){
-  if(!t||t.type!=='Savings')return null;
-  if(t._goalId){const g=S.goals.find(function(x){return x.id===t._goalId;});if(g)return g;}
+  if(!t)return null;
+  if(t._goalId){const g=S.goals.find(function(x){return String(x.id)===String(t._goalId);});if(g)return g;}
+  if(t.type!=='Savings')return null;
   return S.goals.find(function(g){return g.name===t.category;})||null;
+}
+/* Cuánto suma (+) o resta (−) ese movimiento a lo ahorrado de su meta. */
+function goalDeltaOf_(t){
+  if(!goalForTx_(t))return 0;
+  if(t.type==='Savings')return t.amount;      // el monto ya viene firmado (aporte o retiro)
+  if(isFromSavings(t))return -t.amount;       // gasto pagado con el ahorro de la meta
+  return 0;
 }
 /* Ajusta lo ahorrado de una meta (local + backend) cuando se edita/elimina su movimiento. */
 function adjustGoalSaved_(goal,delta){
@@ -1656,8 +1949,8 @@ function adjustGoalSaved_(goal,delta){
 }
 /* Reconcilia la meta cuando se EDITA un movimiento (cambia monto, tipo o categoría). */
 function syncGoalOnEdit_(prev,now){
-  const oldGoal=goalForTx_(prev), oldC=oldGoal?prev.amount:0;
-  const newGoal=goalForTx_(now),  newC=newGoal?now.amount:0;
+  const oldGoal=goalForTx_(prev), oldC=goalDeltaOf_(prev);
+  const newGoal=goalForTx_(now),  newC=goalDeltaOf_(now);
   if(oldGoal&&oldGoal===newGoal){adjustGoalSaved_(oldGoal,newC-oldC);return;}
   if(oldGoal&&oldC)adjustGoalSaved_(oldGoal,-oldC);
   if(newGoal&&newC)adjustGoalSaved_(newGoal,newC);
@@ -1669,7 +1962,7 @@ function removeTx(id){
     animateRemove(rowEl('historyList',id,'.hist-row'),function(){
     const removed=S.transactions[idx]; S.transactions.splice(idx,1); renderAll();
     if(window.Notif){ if(tx.type==='Expense')evalBudget(tx.category,true); scheduleDailyReminders(); }
-    gs('deleteTransaction',id).then(function(){toast(TXT.eliminado,'ok');const g=goalForTx_(removed);if(g)adjustGoalSaved_(g,-removed.amount);})
+    gs('deleteTransaction',id).then(function(){toast(TXT.eliminado,'ok');const g=goalForTx_(removed);if(g)adjustGoalSaved_(g,-goalDeltaOf_(removed));})
       .catch(function(){S.transactions.splice(idx,0,removed);renderAll();toast(TXT.errBorrar,'err');});
     });
   });
@@ -1681,8 +1974,8 @@ function openExport(){
   document.getElementById('exportStatus').textContent='';
   // valores por defecto del rango = periodo actual
   const b=periodBounds(S.ref,S.period);
-  document.getElementById('rangeStart').value=ymd(b.start);
-  document.getElementById('rangeEnd').value=ymd(b.end);
+  setDate_('rangeStart',ymd(b.start));
+  setDate_('rangeEnd',ymd(b.end));
   bk.style.display='flex';requestAnimationFrame(function(){bk.classList.add('show');positionAllSegInks();});
 }
 function closeExport(){const bk=document.getElementById('exportBackdrop');bk.classList.remove('show');setTimeout(function(){bk.style.display='none';},250);}
@@ -1879,9 +2172,9 @@ function renderBudgets(){
     head='<div class="budget-total">'+
       '<span class="bt-label">Gastado en '+MESES[S.ref.getMonth()]+'</span>'+
       '<div class="bt-big">'+money(totSpent)+' <span class="bt-of">de '+money(totBudget)+'</span></div>'+
-      '<div class="bbar big"><span class="bbar-fill '+barClass(totSpent,totBudget)+'" style="width:'+totPct+'%"></span></div>'+
+      '<div class="bbar big"><span class="bbar-fill '+barClass(totSpent,totBudget)+'" style="width:'+totPct+'%'+(totPct>0?';min-width:6px':'')+'"></span></div>'+
       '<div class="bt-row"><span>'+totPct+'% usado</span><span class="bt-val">'+
-        (totSpent>totBudget?('+'+money(totSpent-totBudget)+' sobre el límite'):(money(totBudget-totSpent)+' disponible'))+'</span></div>'+
+        (totSpent>totBudget?(money(totSpent-totBudget)+' por encima del límite'):(money(totBudget-totSpent)+' disponible'))+'</span></div>'+
     '</div>';
   }
   // Con presupuesto primero (ordenados por % de uso, el más comprometido arriba); sin presupuesto, compactas al final
@@ -1902,8 +2195,8 @@ function renderBudgets(){
           '<button class="pend-act bi-edit" data-cat="'+esc(c.name)+'" data-bg="'+bg+'" aria-label="Editar">'+ICON.edit+'</button>'+
           '<button class="pend-act del bi-del" data-cat="'+esc(c.name)+'" aria-label="Eliminar">'+ICON.trash+'</button>'+
         '</div></div>'+
-      '<div class="bbar"><span class="bbar-fill '+barClass(sp,bg)+'" style="width:'+pct+'%"></span></div>'+
-      '<div class="bi-foot"><span>'+pct+'% usado</span><span>'+(over?('+'+money(sp-bg)+' sobre'):(money(bg-sp)+' disponible'))+'</span></div>'+
+      '<div class="bbar"><span class="bbar-fill '+barClass(sp,bg)+'" style="width:'+pct+'%'+(pct>0?';min-width:6px':'')+'"></span></div>'+
+      '<div class="bi-foot"><span>'+pct+'% usado</span><span>'+(over?(money(sp-bg)+' por encima'):(money(bg-sp)+' disponible'))+'</span></div>'+
     '</div>';
   }).join('');
   const rest=without.length?('<div class="b-sec">Sin presupuesto</div>'+without.map(function(c,i){
@@ -1964,7 +2257,10 @@ function openMiniInput(title,bodyHtml,okLabel,cb){
   document.getElementById('confirmMsg').innerHTML=bodyHtml;
   document.getElementById('confirmOk').textContent=okLabel||'Guardar';
   S.confirmCb=cb;
-  const bk=document.getElementById('confirmBackdrop');bk.style.display='flex';requestAnimationFrame(function(){bk.classList.add('show');});
+  const bk=document.getElementById('confirmBackdrop');bk.style.display='flex';
+  // El cuerpo puede traer un .segmented: hay que colocar su burbuja ya visible,
+  // si no queda sin posicionar y después no acompaña a la opción activa.
+  requestAnimationFrame(function(){bk.classList.add('show');positionAllSegInks();});
 }
 
 /* ═══════════════ RECURRENCIAS ═══════════════ */
@@ -2076,7 +2372,7 @@ function renderGoals(){
       '<div class="goal-head"><span class="goal-dot" style="background:'+safeColor(g.color)+'"></span>'+
         '<span class="goal-name">'+esc(g.name)+(done?'<span class="b-tag ok">¡Lograda!</span>':'')+'</span>'+
         '<span class="goal-pct">'+pct+'%</span></div>'+
-      '<div class="bbar big"><span class="bbar-fill" style="width:'+pct+'%;background:'+safeColor(g.color)+'"></span></div>'+
+      '<div class="bbar big"><span class="bbar-fill" style="width:'+pct+'%'+(pct>0?';min-width:6px':'')+';background:'+safeColor(g.color)+'"></span></div>'+
       '<div class="goal-foot"><span>'+money(g.saved)+' de '+money(g.target)+'</span>'+
         '<span>'+(done?'Meta cumplida':(money(Math.max(0,g.target-g.saved))+' restante'))+'</span></div>'+
       (g.note?'<div class="goal-note">'+ICON.note+esc(g.note)+'</div>':'')+
@@ -2138,7 +2434,7 @@ function contribGoal(id,isMinus){
     if(el){el.focus({preventScroll:true});el.addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);});}
     const seg=document.getElementById('contribSrcSeg');
     if(seg)seg.addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;
-      seg.querySelectorAll('button').forEach(function(x){x.classList.remove('active');});b.classList.add('active');
+      setSeg('contribSrcSeg',b); // mueve la burbuja además de marcar la opción
       const hint=document.getElementById('contribHint');
       if(hint)hint.textContent=b.dataset.source==='Salary'?('Se descuenta de tu disponible actual ('+money(disponibleReal())+').'):'Es un nuevo ingreso (no afecta tu disponible actual).';});
   },260);
