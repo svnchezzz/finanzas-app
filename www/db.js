@@ -1021,6 +1021,17 @@ function injectLogin_(){
   #login-card .lswitch{width:100%;border:0;background:transparent;color:var(--ink-2,#5C5C5C);font-family:inherit;font-size:13px;margin-top:14px;cursor:pointer;padding:8px}
   #login-card .lswitch b{color:var(--ink,#0A0A0A)}
   #login-card[data-mode="in"] #login-up{display:none}
+  /* Animaciones (solo transform/opacity): la tarjeta entra al mostrarse, el contenido
+     entra escalonado al cambiar de vista y los mensajes aparecen con un leve deslizamiento */
+  #login-ov.show #login-card{animation:lcIn .5s cubic-bezier(.16,1,.3,1) both}
+  @keyframes lcIn{from{opacity:0;transform:translateY(16px) scale(.98)}}
+  #login-card.swap>*{animation:lgIn .4s cubic-bezier(.16,1,.3,1) both;animation-delay:calc(var(--i,0) * 35ms)}
+  @keyframes lgIn{from{opacity:0;transform:translateY(8px)}}
+  #login-msg.pop{animation:msgIn .32s cubic-bezier(.16,1,.3,1) both}
+  #login-msg.pop.err{animation:msgIn .32s cubic-bezier(.16,1,.3,1) both,msgShake .36s ease .05s}
+  @keyframes msgIn{from{opacity:0;transform:translateY(-5px)}}
+  @keyframes msgShake{20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}
+  @media (prefers-reduced-motion:reduce){#login-card,#login-card *{animation:none!important}}
   #login-card .lforgot{display:block;margin:8px 0 0 auto;border:0;background:transparent;padding:6px 0;cursor:pointer;
     font-family:inherit;font-size:12.5px;font-weight:500;color:var(--ink-2,#5C5C5C)}
   #login-card .lforgot:hover{color:var(--ink,#0A0A0A)}
@@ -1088,6 +1099,11 @@ function injectLogin_(){
     document.getElementById('login-switch').innerHTML=t[2];
     document.getElementById('login-pass-lbl').textContent = mode==='reset' ? 'Nueva contraseña' : 'Contraseña';
     document.getElementById('login-pass').setAttribute('autocomplete', mode==='in' ? 'current-password' : 'new-password');
+    // Reinicia la entrada escalonada solo de lo que queda visible en la nueva vista
+    const card=document.getElementById('login-card');
+    card.classList.remove('swap'); void card.offsetWidth;
+    let i=0; Array.prototype.forEach.call(card.children,function(el){ if(el.offsetParent!==null) el.style.setProperty('--i',i++); });
+    card.classList.add('swap');
   }
   window.setLoginMode_ = setLoginMode_;
   document.getElementById('login-switch').onclick = function(){
@@ -1123,6 +1139,12 @@ function injectLogin_(){
   sup.addEventListener('click', function(ev){ if(ev.target.id==='signup-ov') closeSignup_(); });
 
   const msg = ()=>document.getElementById('login-msg');
+  // Cada mensaje nuevo entra animado; los de error además tiemblan un poco
+  new MutationObserver(function(){
+    const m=msg(); if(!m.textContent) return;
+    m.classList.remove('pop','err'); void m.offsetWidth;
+    m.classList.add('pop'); if(/neg/.test(m.style.color)) m.classList.add('err');
+  }).observe(msg(), { childList:true, characterData:true, subtree:true });
   const email = ()=>document.getElementById('login-email').value.trim();
   const pass  = ()=>document.getElementById('login-pass').value;
 

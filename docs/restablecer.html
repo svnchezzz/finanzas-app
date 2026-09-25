@@ -64,6 +64,19 @@
     button.go:active{transform:scale(.97)}
     button.go:disabled{opacity:.6;cursor:default}
     #msg{min-height:20px;margin-top:14px;font-size:13.5px;color:var(--neg);text-align:center}
+    /* Animaciones: cada vista entra deslizando, el ícono aparece con rebote y el ✓ se dibuja */
+    .view.on{animation:vIn .45s cubic-bezier(.22,1,.36,1) both}
+    @keyframes vIn{from{opacity:0;transform:translateY(10px)}}
+    .view.on .mark{animation:markPop .55s cubic-bezier(.34,1.56,.64,1) .06s both}
+    @keyframes markPop{from{opacity:0;transform:scale(.6) rotate(-8deg)}}
+    .view.on form>*{animation:vIn .45s cubic-bezier(.22,1,.36,1) both}
+    .view.on form>*:nth-child(2){animation-delay:.05s}.view.on form>*:nth-child(3){animation-delay:.1s}
+    .view.on form>*:nth-child(4){animation-delay:.15s}.view.on form>*:nth-child(5){animation-delay:.2s}
+    #vOk.on .mark path{stroke-dasharray:24;stroke-dashoffset:24;animation:draw .5s cubic-bezier(.65,0,.35,1) .35s forwards}
+    @keyframes draw{to{stroke-dashoffset:0}}
+    #msg.pop{animation:vIn .3s cubic-bezier(.22,1,.36,1) both,shake .36s ease .05s}
+    @keyframes shake{20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}
+    @media (prefers-reduced-motion:reduce){*{animation:none!important}}
   </style>
 </head>
 <body>
@@ -147,6 +160,13 @@
       b.setAttribute('aria-label', ver ? 'Ocultar contraseña' : 'Mostrar contraseña');
     });
   });
+
+  // Cada error nuevo entra animado
+  var msgEl = document.getElementById('msg');
+  new MutationObserver(function(){
+    if (!msgEl.textContent) return;
+    msgEl.classList.remove('pop'); void msgEl.offsetWidth; msgEl.classList.add('pop');
+  }).observe(msgEl, { childList:true, characterData:true, subtree:true });
 
   function traducir(m){
     if (/different from the old|same.*password/i.test(m)) return 'La nueva contraseña debe ser distinta a la anterior.';
