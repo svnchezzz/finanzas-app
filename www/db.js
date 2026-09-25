@@ -1155,9 +1155,9 @@ function injectLogin_(){
   const pass  = ()=>document.getElementById('login-pass').value;
 
   document.getElementById('login-in').onclick = async ()=>{
-    msg().style.color='var(--neg,#C93B3B)'; msg().textContent='Entrando…';
+    msg().style.color='var(--ink-2,#5C5C5C)'; msg().textContent='Entrando…';
     const { error } = await sb.auth.signInWithPassword({ email:email(), password:pass() });
-    if (error) msg().textContent = traducirError_(error.message);
+    if (error){ msg().style.color='var(--neg,#C93B3B)'; msg().textContent = traducirError_(error.message); }
     else startApp_();
   };
   // Olvidé mi contraseña: Supabase manda un correo con un enlace que vuelve a la app en modo "reset"
@@ -1165,10 +1165,10 @@ function injectLogin_(){
     msg().style.color='var(--neg,#C93B3B)';
     if (!/^\S+@\S+\.\S+$/.test(email())){ msg().textContent='Escribe el correo de tu cuenta.'; return; }
     if (isOffline_()){ msg().textContent='Sin conexión: conéctate para recibir el correo.'; return; }
-    this.disabled=true; msg().textContent='Enviando…';
+    this.disabled=true; msg().style.color='var(--ink-2,#5C5C5C)'; msg().textContent='Enviando…';
     const { error } = await sb.auth.resetPasswordForEmail(email(), { redirectTo: authRedirectUrl_() });
     this.disabled=false;
-    if (error){ msg().textContent = traducirError_(error.message); return; }
+    if (error){ msg().style.color='var(--neg,#C93B3B)'; msg().textContent = traducirError_(error.message); return; }
     msg().style.color='var(--pos,#0E8A4A)';
     // Mismo mensaje exista o no la cuenta: no se revela qué correos están registrados
     msg().textContent='Si ese correo tiene cuenta, te llegará un enlace para cambiar la contraseña. Revisa también spam.';
@@ -1179,10 +1179,10 @@ function injectLogin_(){
     const p1=pass(), p2=document.getElementById('login-pass2').value;
     if (p1.length < 6){ msg().textContent='La contraseña debe tener al menos 6 caracteres.'; return; }
     if (p1 !== p2){ msg().textContent='Las contraseñas no coinciden.'; return; }
-    this.disabled=true; msg().textContent='Guardando…';
+    this.disabled=true; msg().style.color='var(--ink-2,#5C5C5C)'; msg().textContent='Guardando…';
     const { error } = await sb.auth.updateUser({ password:p1 });
     this.disabled=false;
-    if (error){ msg().textContent = traducirError_(error.message); return; }
+    if (error){ msg().style.color='var(--neg,#C93B3B)'; msg().textContent = traducirError_(error.message); return; }
     recoveryPending_ = false;
     try{ history.replaceState(null, '', location.pathname); }catch(e){}
     document.getElementById('login-pass').value=''; document.getElementById('login-pass2').value='';
@@ -1202,10 +1202,10 @@ function injectLogin_(){
       msg().textContent = 'La contraseña debe tener al menos 6 caracteres.';
       return;
     }
-    msg().textContent='Creando cuenta…';
+    msg().style.color='var(--ink-2,#5C5C5C)'; msg().textContent='Creando cuenta…';
     const { data, error } = await sb.auth.signUp({ email:email(), password:pass(),
       options:{ emailRedirectTo:'https://svnchezzz.github.io/finanzas-app/' } });
-    if (error) { msg().textContent = traducirError_(error.message); return; }
+    if (error) { msg().style.color='var(--neg,#C93B3B)'; msg().textContent = traducirError_(error.message); return; }
     if (data.session) startApp_();
     else {
       document.getElementById('signup-email').textContent = email() || 'tu correo';
