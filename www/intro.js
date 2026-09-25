@@ -2,7 +2,8 @@
    Animación de entrada: se dibuja el contorno del logo (barras + flecha) con
    nodos tipo pluma → se rellena de abajo hacia arriba con acento azul →
    aparece la marca "Control. F" → el logo hace zoom con desenfoque y revela la app.
-   Se reproduce al abrir la app y tras iniciar sesión. Tocar la pantalla la salta.
+   Se reproduce solo al abrir la app (no al iniciar ni cerrar sesión). Tocar la pantalla la salta.
+   Todas las animaciones son transform/opacity: las mueve la GPU aunque la app esté cargando.
    API: window.playIntro() → Promise que se resuelve al terminar. */
 (function(){
   // Colores por tema: sigue el tema de la app (claro por defecto, como el login)
@@ -22,23 +23,32 @@
   const arrowD = 'M'+ARROW.map(function(p){return p.join(' ');}).join('L');
   const headD  = 'M'+HEAD.map(function(p){return p.join(' ');}).join('L')+'Z';
 
+  /* Contorno "dibujándose" SIN animar el SVG (eso lo calcula el hilo principal y se traba en
+     teléfonos de gama media mientras la app carga). Cada trazo va en su propia capa HTML que se
+     revela con dos transform opuestos (barras de abajo arriba, flecha de izquierda a derecha):
+     todo lo mueve la GPU. Los nodos de la pluma son divs que escalan con transform. */
+  const U = function(v){ return (v/120*100).toFixed(3)+'%'; };        // unidades del viewBox → % del logo
+  function piece(d, box, dir, delay){
+    const x=box[0], y=box[1], w=box[2]-box[0], h=box[3]-box[1];
+    return '<div class="ci-pc" data-dir="'+dir+'" data-d="'+ms(delay)+'" style="left:'+U(x)+';top:'+U(y)+';width:'+U(w)+';height:'+U(h)+'">'+
+      '<div class="ci-pc-c"><div class="ci-pc-s" style="left:'+(-x/w*100).toFixed(3)+'%;top:'+(-y/h*100).toFixed(3)+'%;width:'+(120/w*100).toFixed(3)+'%;height:'+(120/h*100).toFixed(3)+'%">'+
+      '<svg class="ci-svg" viewBox="0 0 120 120" aria-hidden="true"><path class="ci-stroke" d="'+d+'"/></svg></div></div></div>';
+  }
   function outlineSvg(){
-    let s = '<svg class="ci-svg" viewBox="0 0 120 120" aria-hidden="true">';
-    BARS.forEach(function(b,i){
-      s += '<path class="ci-draw" style="--d:'+ms(i*110)+'ms" pathLength="1" d="'+barPath(b)+'"/>';
-    });
-    s += '<path class="ci-draw" style="--d:'+ms(420)+'ms" pathLength="1" d="'+arrowD+'"/>';
-    s += '<path class="ci-draw" style="--d:'+ms(720)+'ms" pathLength="1" d="'+headD+'"/>';
+    let s = '';
+    BARS.forEach(function(b,i){ s += piece(barPath(b), [b[0]-1, b[2]-1, b[1]+1, BASE+1], 'up', i*110); });
+    s += piece(arrowD, [10, 50, 100, 100], 'right', 420);
+    s += piece(headD, [87, 42, 108, 63], 'right', 720);
     // Nodos de la pluma: esquinas superiores de las barras y vértices de la flecha
     BARS.forEach(function(b,i){
       [[b[0],b[2]],[b[1],b[2]]].forEach(function(p,j){
-        s += '<circle class="ci-node" style="--d:'+ms(i*110+180+j*90)+'ms" cx="'+p[0]+'" cy="'+p[1]+'" r="1.8"/>';
+        s += '<div class="ci-nd" data-d="'+ms(i*110+180+j*90)+'" style="left:'+U(p[0])+';top:'+U(p[1])+'"></div>';
       });
     });
     ARROW.concat([HEAD[0]]).forEach(function(p,i){
-      s += '<circle class="ci-node" style="--d:'+ms(420+i*110)+'ms" cx="'+p[0]+'" cy="'+p[1]+'" r="1.8"/>';
+      s += '<div class="ci-nd" data-d="'+ms(420+i*110)+'" style="left:'+U(p[0])+';top:'+U(p[1])+'"></div>';
     });
-    return s + '</svg>';
+    return s;
   }
   function fillSvg(glow){
     let s = '<svg class="ci-svg" viewBox="0 0 120 120" aria-hidden="true">';
@@ -63,10 +73,17 @@
   #cintro .ci-logo{position:relative;width:132px;height:132px;transform:translateY(46px);will-change:transform,opacity}
   #cintro .ci-logo>*{position:absolute;inset:0}
   #cintro .ci-svg{width:100%;height:100%;display:block;overflow:visible}
-  #cintro .ci-draw{fill:none;stroke:var(--ci-ink);stroke-opacity:.85;stroke-width:1.1;stroke-linejoin:round;
-    stroke-dasharray:1;stroke-dashoffset:1;animation:ciDraw ${(.62*T).toFixed(2)}s cubic-bezier(.65,0,.35,1) var(--d) forwards}
-  #cintro .ci-node{fill:var(--ci-bg);stroke:var(--ci-ink);stroke-width:.8;opacity:0;transform-box:fill-box;transform-origin:center;
-    animation:ciNode ${(.32*T).toFixed(2)}s cubic-bezier(.34,1.3,.64,1) var(--d) forwards}
+  #cintro .ci-pc{position:absolute;overflow:hidden;will-change:transform}
+  #cintro .ci-pc[data-dir="up"]{transform:translateY(100%)}
+  #cintro .ci-pc[data-dir="up"]>.ci-pc-c{transform:translateY(-100%)}
+  #cintro .ci-pc[data-dir="right"]{transform:translateX(-100%)}
+  #cintro .ci-pc[data-dir="right"]>.ci-pc-c{transform:translateX(100%)}
+  #cintro .ci-pc-c{position:absolute;inset:0;will-change:transform}
+  #cintro .ci-pc-s{position:absolute}
+  #cintro .ci-stroke{fill:none;stroke:var(--ci-ink);stroke-opacity:.85;stroke-width:1.1;stroke-linejoin:round}
+  #cintro .ci-nd{position:absolute;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:var(--ci-bg);
+    box-shadow:0 0 0 .9px var(--ci-ink);opacity:0;will-change:transform,opacity}
+  #cintro .ci-grid,#cintro .ci-halo{will-change:opacity,transform}
   #cintro .ci-bar{fill:var(--ci-ink)}
   #cintro .ci-arr{fill:none;stroke:var(--ci-acc)}
   #cintro .ci-head{fill:var(--ci-acc);stroke:var(--ci-acc)}
@@ -83,8 +100,7 @@
   #cintro .ci-line{width:34px;height:2px;border-radius:2px;margin-top:10px;background:var(--ci-acc);transform:scaleX(0);opacity:.9}
   #cintro .ci-tag{margin-top:10px;font-family:'Inter',system-ui,sans-serif;font-size:12px;letter-spacing:.02em;color:var(--ci-sub);opacity:0}
   #cintro.dark{--ci-bg:#0A0A0A;--ci-ink:#F5F5F3;--ci-acc:#4F7FB8;--ci-grid:rgba(255,255,255,.045);--ci-halo:79,127,184;--ci-sub:rgba(245,245,243,.55)}
-  @keyframes ciDraw{to{stroke-dashoffset:0}}
-  @keyframes ciNode{0%{opacity:0;transform:scale(0)}60%{opacity:1;transform:scale(1.5)}100%{opacity:1;transform:scale(1)}}`;
+`;
 
   let styled = false;
   function build(){
@@ -142,7 +158,17 @@
         return;
       }
 
-      // 1) Cuadrícula y trazado del contorno (CSS: .ci-draw / .ci-node) (tiempos base × T)
+      // 1) Cuadrícula y trazado del contorno: capas reveladas con transform + nodos que escalan (GPU)
+      $$('.ci-pc').forEach(function(pc){
+        const up = pc.dataset.dir==='up', d = +pc.dataset.d;
+        const o = {duration:ms(620), delay:d, easing:SOFT};
+        a(pc, up ? [{transform:'translateY(100%)'},{transform:'translateY(0)'}] : [{transform:'translateX(-100%)'},{transform:'translateX(0)'}], o);
+        a(pc.firstChild, up ? [{transform:'translateY(-100%)'},{transform:'translateY(0)'}] : [{transform:'translateX(100%)'},{transform:'translateX(0)'}], o);
+      });
+      $$('.ci-nd').forEach(function(n){
+        a(n, [{opacity:0, transform:'scale(0)'},{opacity:1, transform:'scale(1.5)', offset:.6},{opacity:1, transform:'scale(1)'}],
+          {duration:ms(320), delay:+n.dataset.d, easing:'cubic-bezier(.34,1.3,.64,1)'});
+      });
       a($('.ci-grid'), [{opacity:0},{opacity:1}], {duration:ms(700)});
       // 2) Relleno de abajo hacia arriba + halo azul — 1.15s → 1.85s
       a($('.ci-fill'), [{transform:'translateY(100%)'},{transform:'translateY(0)'}], {duration:ms(650), delay:ms(1150), easing:SOFT});
