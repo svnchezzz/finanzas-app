@@ -1019,11 +1019,13 @@ function injectLogin_(){
   #login-card .lbtn.ghost{background:transparent;border:1px solid var(--line,#E7E7E4);color:var(--ink,#0A0A0A);margin-top:10px}
   #login-msg{font-size:13px;color:var(--neg,#C93B3B);margin-top:12px;min-height:18px;text-align:center}
   #login-card .lswitch{width:100%;border:0;background:transparent;color:var(--ink-2,#5C5C5C);font-family:inherit;font-size:13px;margin-top:14px;cursor:pointer;padding:8px}
-  #login-card .lswitch b{color:var(--ink,#0A0A0A)}
+  #login-card .lswitch span{color:var(--ink,#0A0A0A)}
   #login-card[data-mode="in"] #login-up{display:none}
   /* Animaciones (solo transform/opacity): la tarjeta entra al mostrarse, el contenido
      entra escalonado al cambiar de vista y los mensajes aparecen con un leve deslizamiento */
-  #login-ov.show #login-card{animation:lcIn .5s cubic-bezier(.16,1,.3,1) both}
+  #login-ov.show{animation:lovIn .3s ease-out both}
+  @keyframes lovIn{from{opacity:0}}
+  #login-ov.show #login-card{animation:lcIn .5s cubic-bezier(.16,1,.3,1) .06s both}
   @keyframes lcIn{from{opacity:0;transform:translateY(16px) scale(.98)}}
   #login-card.swap>*{animation:lgIn .4s cubic-bezier(.16,1,.3,1) both;animation-delay:calc(var(--i,0) * 35ms)}
   @keyframes lgIn{from{opacity:0;transform:translateY(8px)}}
@@ -1079,15 +1081,15 @@ function injectLogin_(){
       <button class="lbtn" id="login-send">Enviar enlace</button>
       <button class="lbtn" id="login-reset">Guardar nueva contraseña</button>
       <div id="login-msg"></div>
-      <button class="lswitch" id="login-switch" type="button">¿No tienes cuenta? <b>Crear cuenta</b></button>
+      <button class="lswitch" id="login-switch" type="button">¿No tienes cuenta? <span>Crear cuenta</span></button>
     </div>`;
   document.body.appendChild(ov);
 
   // Vistas: iniciar sesión · crear cuenta · olvidé mi contraseña · poner contraseña nueva (desde el correo)
   const MODOS_ = {
-    in:     ['Bienvenido', 'Inicia sesión para continuar con tus finanzas.', '¿No tienes cuenta? <b>Crear cuenta</b>'],
-    up:     ['Crear cuenta', 'Crea tu cuenta con tu correo y una contraseña de al menos 6 caracteres.', '¿Ya tienes cuenta? <b>Inicia sesión</b>'],
-    forgot: ['Recuperar contraseña', 'Escribe tu correo y te enviaremos un enlace para crear una contraseña nueva.', '<b>Volver a iniciar sesión</b>'],
+    in:     ['Bienvenido', 'Inicia sesión para continuar con tus finanzas.', '¿No tienes cuenta? <span>Crear cuenta</span>'],
+    up:     ['Crear cuenta', 'Crea tu cuenta con tu correo y una contraseña de al menos 6 caracteres.', '¿Ya tienes cuenta? <span>Inicia sesión</span>'],
+    forgot: ['Recuperar contraseña', 'Escribe tu correo y te enviaremos un enlace para crear una contraseña nueva.', '<span>Volver a iniciar sesión</span>'],
     reset:  ['Nueva contraseña', 'Escribe tu nueva contraseña (mínimo 6 caracteres).', '']
   };
   function setLoginMode_(m){
@@ -1124,7 +1126,7 @@ function injectLogin_(){
       <div class="mail"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></div>
       <h2>¡Casi listo!</h2>
       <p>Te enviamos un correo de confirmación a <b id="signup-email">tu correo</b>.</p>
-      <p>Ábrelo y confirma tu dirección (revisa también la carpeta de spam). Después vuelve aquí e <b>inicia sesión</b>.</p>
+      <p>Ábrelo y confirma tu dirección (revisa también la carpeta de spam). Después vuelve aquí e inicia sesión.</p>
       <button class="lbtn" id="signup-ok">Entendido</button>
     </div>`;
   document.body.appendChild(sup);
@@ -1257,12 +1259,24 @@ function addLogoutButton_(){
 
 window.logout = async function(){
   await sb.auth.signOut();
-  location.reload();
+  // Al recargar: sin intro y directo al login animado (lo leen intro.js y el arranque de abajo)
+  try{ sessionStorage.setItem('cfms-after-logout','1'); }catch(e){}
+  const fin = function(){ location.reload(); };
+  if (document.body.animate){
+    document.body.animate([{opacity:1},{opacity:0}],{duration:200,easing:'ease-in',fill:'forwards'}).finished.then(fin,fin);
+  } else fin();
 };
 
 /* ═══════════════ Arranque ═══════════════ */
 document.addEventListener('DOMContentLoaded', async ()=>{
   injectLogin_();
+
+  // Recién se cerró sesión: no hay sesión que esperar, se muestra el login al instante
+  if (window.__afterLogout){
+    const boot=document.getElementById('boot'); if (boot) boot.style.display='none';
+    showLogin_();
+    return;
+  }
 
   // ¿Hay una sesión guardada localmente? (Supabase la guarda en el teléfono)
   let haySesionLocal = false;

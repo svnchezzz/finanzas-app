@@ -178,6 +178,16 @@
     return running;
   };
 
+  // Tras cerrar sesión no se repite la intro: la app va directo al login (db.js)
+  try{
+    if (sessionStorage.getItem('cfms-after-logout')){
+      sessionStorage.removeItem('cfms-after-logout');
+      window.__afterLogout = true;
+      document.documentElement.classList.remove('ci-on');
+      return;
+    }
+  }catch(e){}
+
   // Al abrir la app: cubre la pantalla de carga mientras se inicia todo
   if (document.body) window.playIntro();
   else document.addEventListener('DOMContentLoaded', function(){ window.playIntro(); });
