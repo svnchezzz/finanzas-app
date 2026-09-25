@@ -3,10 +3,13 @@
  *
  * Capa que conecta el frontend con Supabase. Además:
  *  - Exporta a Excel/PDF en el cliente (SheetJS + jsPDF).
- *  - MODO SIN INTERNET para movimientos: puedes agregar, editar y borrar
- *    movimientos sin señal; se guardan en una "bandeja de salida" local y se
- *    suben solos al volver el internet, SIN duplicarse (gracias a client_id).
- *  - Lectura offline: si abres la app sin internet, muestra tu última copia.
+ *  - MODO SIN INTERNET completo: movimientos, pendientes, metas, recurrencias,
+ *    presupuestos, categorías y ajustes de formato se pueden crear, editar y
+ *    borrar sin señal; van a una "bandeja de salida" local (por usuario) y se
+ *    suben solos al volver el internet, SIN duplicarse.
+ *  - Abrir sin internet: se entra con la sesión guardada en el teléfono aunque
+ *    su token haya vencido (se renueva al volver la red) y se muestra la copia
+ *    local, que se actualiza tras cada cambio, no solo al abrir la app.
  *
  * ───────────────────────────────────────────────────────────────────────────────────
  *  PASO OBLIGATORIO: pega tu publishable key de Supabase en la línea de abajo.
@@ -22,8 +25,19 @@ const NET_TIMEOUT_MS = 3000;
 // fetch con corte por tiempo: si el servidor no responde a tiempo, se aborta.
 // Datos: corte corto (NET_TIMEOUT_MS) para detectar "sin internet" rápido.
 // Auth (login/registro): más holgado, para no cortar la sesión en redes lentas.
+/* Simulador de "sin conexión" SOLO para pruebas en el computador o la red local (nunca en el APK):
+   localStorage.cf_sim_offline = 'avion' (sin red) | 'wifi' (WiFi sin internet real). */
+const SIM_OFF_ = (function(){
+  try{
+    if (!/^(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)$/.test(location.hostname) || location.protocol==='https:') return '';
+    return localStorage.getItem('cf_sim_offline') || '';
+  }catch(e){ return ''; }
+})();
 function timeoutFetch_(input, init){
   const url = (typeof input==='string') ? input : (input && input.url) || '';
+  if (SIM_OFF_) return SIM_OFF_==='wifi'
+    ? new Promise(function(_, rej){ setTimeout(function(){ rej(new TypeError('Failed to fetch')); }, 2500); })   // cuelga y falla
+    : Promise.reject(new TypeError('Failed to fetch'));
   const ms = /\/auth\/v1\//.test(url) ? 12000 : NET_TIMEOUT_MS;
   const ctrl = new AbortController();
   const t = setTimeout(function(){ try{ ctrl.abort(); }catch(e){} }, ms);
@@ -40,10 +54,19 @@ let recoveryPending_ = RECOVERY_LINK_, appStarted_ = false;
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { global: { fetch: timeoutFetch_ } });
 
 // Con enlaces tipo PKCE (?code=…) no hay type=recovery en la URL: Supabase avisa con este evento.
+let loggingOut_ = false;
 sb.auth.onAuthStateChange(function(ev){
-  if (ev !== 'PASSWORD_RECOVERY') return;
-  recoveryPending_ = true;
-  if (document.getElementById('login-ov')) showResetPassword_();
+  if (ev === 'PASSWORD_RECOVERY'){
+    recoveryPending_ = true;
+    if (document.getElementById('login-ov')) showResetPassword_();
+    return;
+  }
+  // El servidor rechazó la sesión guardada (clave cambiada en otro equipo, sesión revocada…):
+  // se vuelve al login. La copia local no se toca.
+  if (ev === 'SIGNED_OUT' && appStarted_ && !loggingOut_){
+    try{ sessionStorage.setItem('cfms-after-logout','1'); }catch(e){}
+    location.reload();
+  }
 });
 
 // A dónde vuelve el enlace del correo de recuperación: en la web, esta misma página (la app pide la
@@ -60,6 +83,24 @@ const PALETTE_BY_TYPE = {
 };
 
 let CURRENT_USER_ID = null;
+
+/* Sesión que Supabase dejó guardada en el teléfono, leída directamente (sin red).
+   Supabase solo la borra si el servidor la rechaza (cerrar sesión, clave cambiada…);
+   si no pudo renovarla por falta de internet, sigue ahí: con ella se abre la app
+   sin conexión con los datos del último inicio de sesión. */
+function storedSession_(){
+  try{
+    for (let i=0; i<localStorage.length; i++){
+      const k = localStorage.key(i);
+      if (!k || !/^sb-.*-auth-token$/.test(k)) continue;
+      const v = JSON.parse(localStorage.getItem(k) || 'null');
+      const s = v && (v.currentSession || v);
+      if (s && s.user && s.user.id) return s;
+    }
+  }catch(e){}
+  return null;
+}
+function storedUserId_(){ const s = storedSession_(); return s ? s.user.id : null; }
 
 const TIPO_ES = { Income:'Ingreso', Expense:'Gasto', Savings:'Ahorro' };
 const ORIGEN_ES = { Salary:'Salario', Other:'Otra fuente', Savings:'Ahorro' };
@@ -123,7 +164,7 @@ function uuid_(){
 let _netDown=false;          // true = el servidor no responde (sin internet REAL, aunque el WiFi esté encendido)
 
 // "Sin conexión" = sin interfaz de red  O  el servidor no responde (internet real caído)
-function isOffline_(){ return (typeof navigator!=='undefined' && navigator.onLine===false) || _netDown; }
+function isOffline_(){ return SIM_OFF_==='avion' || (typeof navigator!=='undefined' && navigator.onLine===false) || _netDown; }
 function isNetErr_(e){
   if (typeof navigator!=='undefined' && navigator.onLine===false) return true;
   const m = ((e && (e.message||e.msg)) || '') + '';
@@ -160,6 +201,7 @@ function markNet_(ok){
   _netDown=!ok;
   if (ok && was){            // volvió el internet real
     _offlineNotified=false;
+    try{ sb.auth.getSession(); }catch(e){}   // renueva el token vencido mientras no había red
     if (typeof updateBar_==='function') updateBar_();
     if (typeof flushQueue_==='function') flushQueue_();
   } else if (!ok && !was){   // se acaba de caer el internet real
@@ -215,7 +257,7 @@ function aCola_(e){ return e===undefined ? isOffline_() : isRetriable_(e); }
 function cacheKey_(){ return 'cf_cache_' + (CURRENT_USER_ID || 'anon'); }
 function saveSnapshotData_(data){
   try{
-    const blob = JSON.stringify({ at:Date.now(), data:data });
+    const blob = JSON.stringify({ at:Date.now(), uid:CURRENT_USER_ID, data:data });
     localStorage.setItem(cacheKey_(), blob);
     localStorage.setItem('cf_cache_last', blob);   // respaldo: última copia, sin depender del usuario
   }catch(e){}
@@ -228,7 +270,10 @@ function loadSnapshot_(){
   }catch(e){}
   try{
     const raw2 = localStorage.getItem('cf_cache_last');
-    if(raw2) return JSON.parse(raw2).data;
+    if(raw2){
+      const b = JSON.parse(raw2);
+      if (!CURRENT_USER_ID || !b.uid || b.uid === CURRENT_USER_ID) return b.data;   // nunca datos de otra cuenta
+    }
   }catch(e){}
   return null;
 }
@@ -236,7 +281,7 @@ let _snapT=null;
 function snapSoon_(){ clearTimeout(_snapT); _snapT=setTimeout(snapshotState_, 0); }
 function snapshotState_(){
   try{
-    const S=window.S; if(!S) return;
+    const S=window.S; if(!S || !S._loaded) return;   // no pisar la copia con el estado vacío previo a cargar
     saveSnapshotData_({ transactions:S.transactions, categories:S.categories, settings:S.settings,
       pendings:S.pendings, budgets:S.budgets, recurring:S.recurring, goals:S.goals, palettes:S.palettes });
   }catch(e){}
@@ -264,6 +309,46 @@ const ENT_={
       note:rc.note||'', active:rc.active!==false }; } }
 };
 
+/* Presupuesto contra el servidor (sin cola): 0 lo borra. */
+async function budgetOnline_(type, category, amount){
+  amount = num_(amount);
+  if (amount<=0){
+    const { error } = await netCall_(sb.from('budgets').delete().eq('type',type).eq('category',category));
+    if (error) throw error;
+    return { type, category, amount:0, deleted:true };
+  }
+  const { data:ex, error:e0 } = await netCall_(sb.from('budgets').select('id').eq('type',type).eq('category',category).maybeSingle());
+  if (e0) throw e0;
+  if (ex){ const { error } = await netCall_(sb.from('budgets').update({monthly_amount:amount}).eq('id',ex.id)); if(error) throw error; }
+  else   { const { error } = await netCall_(sb.from('budgets').insert({type,category,monthly_amount:amount})); if(error) throw error; }
+  return { type, category, amount };
+}
+
+/* Categorías contra el servidor (sin cola). */
+const CAT_={
+  async add(type, name, color){
+    const { data, error } = await netCall_(sb.from('categories').insert({type,name,color}).select().single());
+    if (error){
+      if (isRetriable_(error)) throw error;
+      const { data:ex } = await netCall_(sb.from('categories').select('*').eq('type',type).eq('name',name).maybeSingle());
+      if (ex) return { type:ex.type, name:ex.name, color:ex.color };   // ya existía: vale
+      throw error;
+    }
+    return { type:data.type, name:data.name, color:data.color };
+  },
+  async update(type, oldName, newName, newColor){
+    const u1 = await netCall_(sb.from('categories').update({name:newName,color:newColor}).eq('type',type).eq('name',oldName));
+    if (u1.error) throw u1.error;
+    const u2 = await netCall_(sb.from('transactions').update({category:newName,color:newColor}).eq('type',type).eq('category',oldName));
+    if (u2.error) throw u2.error;
+    return { type, name:newName, color:newColor };
+  },
+  async del(type, name){
+    const { error } = await netCall_(sb.from('categories').delete().eq('type',type).eq('name',name));
+    if (error) throw error;
+  }
+};
+
 /* Aplica una operación de la cola. `mapa` traduce los ids provisionales a los
    reales que devolvió el servidor durante esta misma subida. */
 async function applyOp_(item, mapa){
@@ -284,7 +369,20 @@ async function applyOp_(item, mapa){
 
   // ── Presupuestos: clave natural tipo+categoría, sin ids que reconciliar ──
   if (item.ent==='budget'){
-    await API.setBudget(item.type, item.category, item.amount);
+    await budgetOnline_(item.type, item.category, item.amount);
+    return;
+  }
+  // ── Categorías: clave natural tipo+nombre ──
+  if (item.ent==='cat'){
+    if (item.op==='add') await CAT_.add(item.type, item.name, item.color);
+    else if (item.op==='update') await CAT_.update(item.type, item.oldName, item.newName, item.newColor);
+    else if (item.op==='delete') await CAT_.del(item.type, item.name);
+    return;
+  }
+  // ── Ajustes de formato ──
+  if (item.ent==='settings'){
+    const { error } = await netCall_(sb.from('settings').update(item.payload).eq('user_id',CURRENT_USER_ID));
+    if (error) throw error;
     return;
   }
 
@@ -462,6 +560,10 @@ setInterval(function(){
 
 /* ═══════════════ Funciones de datos ═══════════════ */
 async function fetchAll_(){
+  // Sin sesión válida el servidor respondería listas vacías (por seguridad de las tablas) y se
+  // pisaría la copia local con "nada": se trata como error de sesión (se usa la copia local).
+  const ses = await withTimeout_(sb.auth.getSession(), NET_TIMEOUT_MS).catch(function(){ return null; });
+  if (!(ses && ses.data && ses.data.session)){ const e = new Error('session missing'); e.status = 401; throw e; }
   const [tx, cats, set, pend, bud, rec, goals] = await netCall_(Promise.all([
     sb.from('transactions').select('*'),
     sb.from('categories').select('*'),
@@ -592,25 +694,32 @@ const API = {
     }
   },
 
-  /* ── Categorías (requieren conexión) ── */
+  /* ── Categorías (sin conexión: se encolan; su clave es tipo+nombre) ── */
   async addCategory(type, name, color){
-    const { data, error } = await sb.from('categories').insert({type,name,color}).select().single();
-    if (error){
-      const { data:ex } = await sb.from('categories').select('*').eq('type',type).eq('name',name).maybeSingle();
-      if (ex) return { type:ex.type, name:ex.name, color:ex.color };
-      throw error;
-    }
-    return { type:data.type, name:data.name, color:data.color };
+    const local = { type, name, color };
+    if (aCola_()){ enqEnt_('cat','add',{type,name,color}); snapSoon_(); return local; }
+    try{ return await CAT_.add(type, name, color); }
+    catch(e){ if (aCola_(e)){ enqEnt_('cat','add',{type,name,color}); snapSoon_(); return local; } throw e; }
   },
   async updateCategory(type, oldName, newName, newColor){
-    const u1 = await sb.from('categories').update({name:newName,color:newColor}).eq('type',type).eq('name',oldName);
-    if (u1.error) throw u1.error;
-    await sb.from('transactions').update({category:newName,color:newColor}).eq('category',oldName);
-    return { type, name:newName, color:newColor };
+    const local = { type, name:newName, color:newColor };
+    const encolar = function(){ enqEnt_('cat','update',{type,oldName,newName,newColor}); snapSoon_(); return local; };
+    if (aCola_()) return encolar();
+    try{ return await CAT_.update(type, oldName, newName, newColor); }
+    catch(e){ if (aCola_(e)) return encolar(); throw e; }
   },
   async deleteCategory(type, name){
-    const { error } = await sb.from('categories').delete().eq('type',type).eq('name',name);
-    if (error) throw error; return true;
+    const encolar = function(){
+      // Si el alta de esa categoría aún no se subió, se cancelan ambas
+      let q=loadQueue_();
+      const teniaAlta = q.some(function(it){ return it.ent==='cat' && it.op==='add' && it.type===type && it.name===name; });
+      q = q.filter(function(it){ return !(it.ent==='cat' && it.type===type && (it.name===name || it.newName===name)); });
+      if (!teniaAlta) q.push({ent:'cat', op:'delete', type:type, name:name});
+      saveQueue_(q); updateBar_(); snapSoon_(); return true;
+    };
+    if (aCola_()) return encolar();
+    try{ await CAT_.del(type, name); return true; }
+    catch(e){ if (aCola_(e)) return encolar(); throw e; }
   },
 
   /* ── Pendientes ── */
@@ -674,16 +783,7 @@ const API = {
     };
     if (aCola_()) return encolar();
     try{
-      if (amount<=0){
-        const { error } = await netCall_(sb.from('budgets').delete().eq('type',type).eq('category',category));
-        if (error) throw error;
-        return { type, category, amount:0, deleted:true };
-      }
-      const { data:ex, error:e0 } = await netCall_(sb.from('budgets').select('id').eq('type',type).eq('category',category).maybeSingle());
-      if (e0) throw e0;
-      if (ex){ const { error } = await netCall_(sb.from('budgets').update({monthly_amount:amount}).eq('id',ex.id)); if(error) throw error; }
-      else   { const { error } = await netCall_(sb.from('budgets').insert({type,category,monthly_amount:amount})); if(error) throw error; }
-      return { type, category, amount };
+      return await budgetOnline_(type, category, amount);
     }catch(e){
       if (aCola_(e)) return encolar();
       throw e;
@@ -785,12 +885,22 @@ const API = {
     }
   },
 
-  /* ── Ajustes ── */
+  /* ── Ajustes (sin conexión: se guarda el último valor y se sube luego) ── */
   async saveAppSettings(currencySymbol, decimals, locale){
     const payload = { currency_symbol:limpiaSimbolo_(currencySymbol), decimals:parseInt(decimals,10)||0, locale:locale||'es-CO' };
-    const { data, error } = await sb.from('settings').update(payload).eq('user_id',CURRENT_USER_ID).select().single();
-    if (error) throw error;
-    return mapSettings_(data);
+    const encolar = function(){
+      let q=loadQueue_().filter(function(it){ return it.ent!=='settings'; });
+      q.push({ent:'settings', op:'set', payload:payload});
+      saveQueue_(q); updateBar_(); snapSoon_();
+      const st=(window.S&&window.S.settings)||{};
+      return Object.assign({}, st, { currencySymbol:payload.currency_symbol, decimals:payload.decimals, locale:payload.locale });
+    };
+    if (aCola_()) return encolar();
+    try{
+      const { data, error } = await netCall_(sb.from('settings').update(payload).eq('user_id',CURRENT_USER_ID).select().single());
+      if (error) throw error;
+      return mapSettings_(data);
+    }catch(e){ if (aCola_(e)) return encolar(); throw e; }
   },
   async saveNotifySettings(email, enabled){
     const payload = { notify_email:email||'', notify_enabled:!!enabled };
@@ -951,8 +1061,15 @@ window.isOffline = isOffline_;
 window.gs = function(fn){
   const args = [].slice.call(arguments, 1);
   if (typeof API[fn] !== 'function') return Promise.reject(new Error('Función no disponible: '+fn));
-  return API[fn].apply(null, args);
+  const p = API[fn].apply(null, args);
+  // Tras cualquier cambio (con o sin internet) la copia local queda al día: si luego abres la app
+  // sin conexión, ves exactamente lo último, no la descarga de la última vez que abriste la app.
+  if (!/^(getInitialData|export)/.test(fn)) Promise.resolve(p).then(snapSoon_, snapSoon_);
+  return p;
 };
+// Al salir o mandar la app al fondo, se guarda la copia local al instante
+document.addEventListener('visibilitychange', function(){ if (document.visibilityState==='hidden') snapshotState_(); });
+window.addEventListener('pagehide', snapshotState_);
 
 /* ═══════════════ Descarga del archivo exportado ═══════════════ */
 function getDownloadsPlugin_(){
@@ -1215,6 +1332,8 @@ function injectLogin_(){
   };
 }
 function traducirError_(m){
+  if (/fetch|network|timeout|abort/i.test(m) || (typeof navigator!=='undefined' && navigator.onLine===false))
+    return 'Sin conexión: para iniciar sesión necesitas internet. Si ya tenías la sesión abierta, la app abre sin internet con tus últimos datos.';
   if (/Invalid login/i.test(m)) return 'Correo o contraseña incorrectos.';
   if (/already registered/i.test(m)) return 'Ese correo ya tiene cuenta. Pulsa "Entrar".';
   if (/at least 6/i.test(m)) return 'La contraseña debe tener al menos 6 caracteres.';
@@ -1234,13 +1353,22 @@ function showResetPassword_(){
 
 async function startApp_(){
   appStarted_ = true;
-  // Obtener el usuario SIN llamar a internet (lee la sesión guardada en el teléfono)
-  let uid = null;
-  try{
-    const { data:{ session } } = await sb.auth.getSession();
-    uid = (session && session.user) ? session.user.id : null;
-  }catch(e){ uid = null; }
+  // Usuario: el de la sesión guardada en el teléfono (sin red). Solo se le pregunta a Supabase
+  // un instante; sin internet puede tardar mucho intentando renovar el token.
+  let uid = storedUserId_();
+  if (!uid){
+    try{
+      const r = await Promise.race([ sb.auth.getSession(), new Promise(function(ok){ setTimeout(function(){ ok(null); }, 1500); }) ]);
+      uid = r && r.data && r.data.session && r.data.session.user ? r.data.session.user.id : null;
+    }catch(e){ uid = null; }
+  }
   CURRENT_USER_ID = uid;
+  try{ if (uid) localStorage.setItem('cf_last_uid', uid); }catch(e){}
+  // Cambios que quedaron en una cola sin dueño (versiones anteriores, al no saber aún el usuario): se recuperan
+  try{
+    const anon = JSON.parse(localStorage.getItem('cf_outbox_anon') || '[]');
+    if (uid && anon.length){ saveQueue_(loadQueue_().concat(anon)); localStorage.removeItem('cf_outbox_anon'); }
+  }catch(e){}
 
   // Si se entra desde el login, este se queda ("Entrando…") hasta que la app está lista y luego se
   // desvanece: así no aparece la pantalla de carga entre medias. Al abrir la app no aplica (ahí está la intro).
@@ -1281,7 +1409,15 @@ function addLogoutButton_(){
 }
 
 window.logout = async function(){
-  await sb.auth.signOut();
+  loggingOut_ = true;
+  snapshotState_();
+  try{
+    const r = isOffline_() ? await sb.auth.signOut({ scope:'local' })
+                           : await withTimeout_(sb.auth.signOut(), 5000);
+    if (r && r.error) throw r.error;
+  }catch(e){
+    try{ await sb.auth.signOut({ scope:'local' }); }catch(e2){}   // sin red: al menos aquí se cierra
+  }
   // Al recargar: sin intro y directo al login animado (lo leen intro.js y el arranque de abajo)
   try{ sessionStorage.setItem('cfms-after-logout','1'); }catch(e){}
   const fin = function(){ location.reload(); };
@@ -1310,6 +1446,11 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     }
   }catch(e){}
 
+  // Con sesión guardada en el teléfono se entra directo, sin esperar a Supabase (que sin internet
+  // puede tardar mucho intentando renovar el token). Si el servidor la rechaza luego, al renovarla
+  // Supabase la borra y la próxima vez se pide iniciar sesión.
+  if (storedSession_() && !recoveryPending_ && !LINK_ERROR_){ startApp_(); return; }
+
   // Pide la sesión a Supabase, pero sin colgarse: máximo 4 segundos de espera.
   let session = null;
   try{
@@ -1333,6 +1474,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     m.style.color='var(--neg,#C93B3B)'; m.textContent='El enlace venció o ya se usó. Pide uno nuevo con "¿Olvidaste tu contraseña?".';
     return;
   }
+  // Supabase no devolvió sesión, pero la guardada sigue en el teléfono: no pudo renovarla por falta
+  // de internet (si la hubiera rechazado el servidor, la habría borrado). Se entra sin conexión.
+  if (!session && storedSession_()) session = 'LOCAL';
   if (session) startApp_();
   else showLogin_();
 });

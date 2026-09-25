@@ -422,6 +422,7 @@ async function init(){
     S.recurring=data.recurring||[];
     S.goals=data.goals||[];
     S.palettes=data.palettes||PALETTES_FALLBACK;     // paletas por tipo
+    S._loaded=true;                                  // desde aquí db.js puede guardar la copia local
     if(window.Chart){Chart.defaults.color=tcol('--ink-2');Chart.defaults.font.family="'Inter',sans-serif";Chart.defaults.font.size=12;
       // Tooltip como HTML superpuesto (fondo opaco, z-index alto): legible, no se mezcla ni se recorta.
       Chart.defaults.plugins.tooltip.enabled=false;
