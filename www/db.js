@@ -1025,6 +1025,10 @@ function injectLogin_(){
      entra escalonado al cambiar de vista y los mensajes aparecen con un leve deslizamiento */
   #login-ov.show{animation:lovIn .3s ease-out both}
   @keyframes lovIn{from{opacity:0}}
+  #login-ov.leaving{animation:lovOut .38s ease-in both;pointer-events:none}
+  #login-ov.leaving #login-card{animation:lcOut .38s cubic-bezier(.4,0,1,1) both}
+  @keyframes lovOut{to{opacity:0}}
+  @keyframes lcOut{to{opacity:0;transform:translateY(-10px) scale(.98)}}
   #login-ov.show #login-card{animation:lcIn .5s cubic-bezier(.16,1,.3,1) .06s both}
   @keyframes lcIn{from{opacity:0;transform:translateY(16px) scale(.98)}}
   #login-card.swap>*{animation:lgIn .4s cubic-bezier(.16,1,.3,1) both;animation-delay:calc(var(--i,0) * 35ms)}
@@ -1154,7 +1158,7 @@ function injectLogin_(){
     msg().style.color='var(--neg,#C93B3B)'; msg().textContent='Entrando…';
     const { error } = await sb.auth.signInWithPassword({ email:email(), password:pass() });
     if (error) msg().textContent = traducirError_(error.message);
-    else { if (window.playIntro) window.playIntro(); startApp_(); }
+    else startApp_();
   };
   // Olvidé mi contraseña: Supabase manda un correo con un enlace que vuelve a la app en modo "reset"
   document.getElementById('login-send').onclick = async function(){
@@ -1185,7 +1189,7 @@ function injectLogin_(){
     msg().textContent='';
     if (window.Haptic && Haptic.success) Haptic.success();
     if (appStarted_){ document.getElementById('login-ov').classList.remove('show'); if (window.toast) toast('Contraseña actualizada','ok'); }
-    else { if (window.playIntro) window.playIntro(); startApp_(); }
+    else startApp_();
   };
 
   document.getElementById('login-up').onclick = async ()=>{
@@ -1238,9 +1242,28 @@ async function startApp_(){
   }catch(e){ uid = null; }
   CURRENT_USER_ID = uid;
 
-  const ov = document.getElementById('login-ov'); if (ov) ov.classList.remove('show');
+  // Si se entra desde el login, este se queda ("Entrando…") hasta que la app está lista y luego se
+  // desvanece: así no aparece la pantalla de carga entre medias. Al abrir la app no aplica (ahí está la intro).
+  const ov = document.getElementById('login-ov');
+  const desdeLogin = !!(ov && ov.classList.contains('show'));
+  const boot = document.getElementById('boot');
+  if (desdeLogin){ if (boot) boot.classList.add('gone'); }
+  else if (ov) ov.classList.remove('show');
   addLogoutButton_();
-  if (typeof window.init === 'function') window.init();
+  let listo = null;
+  if (typeof window.init === 'function') listo = window.init();
+  if (desdeLogin){
+    Promise.resolve(listo).catch(function(){}).then(function(){
+      const app = document.getElementById('app');
+      if (boot && app && app.classList.contains('hidden')) boot.classList.remove('gone');   // falló: que se vea el error
+      ov.classList.add('leaving');
+      setTimeout(function(){
+        ov.classList.remove('show','leaving');
+        const m = document.getElementById('login-msg'); if (m) m.textContent = '';
+        document.documentElement.classList.remove('no-boot');
+      }, 380);
+    });
+  }
   updateBar_();
   setTimeout(function(){ if(!isOffline_()) flushQueue_(); }, 1500);
 }

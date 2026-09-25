@@ -184,6 +184,7 @@
       sessionStorage.removeItem('cfms-after-logout');
       window.__afterLogout = true;
       document.documentElement.classList.remove('ci-on');
+      document.documentElement.classList.add('no-boot');
       return;
     }
   }catch(e){}

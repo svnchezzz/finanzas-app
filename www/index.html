@@ -4,7 +4,7 @@
   <base target="_top">
   <meta charset="utf-8">
   <!-- Intro: fondo del tema desde el primer pintado para que no parpadee (intro.js lo retira) -->
-  <style>html.ci-on,html.ci-on body{background:#F7F7F5!important}html.ci-on[data-theme="dark"],html.ci-on[data-theme="dark"] body{background:#0A0A0A!important}</style>
+  <style>html.no-boot #boot{display:none!important}html.ci-on,html.ci-on body{background:#F7F7F5!important}html.ci-on[data-theme="dark"],html.ci-on[data-theme="dark"] body{background:#0A0A0A!important}</style>
   <script>document.documentElement.classList.add('ci-on');</script>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <!-- PWA / instalable en pantalla de inicio -->
@@ -43,7 +43,7 @@
   <link rel="stylesheet" href="styles.css?v=50">
 </head>
 <body>
-  <script src="intro.js?v=9"></script>
+  <script src="intro.js?v=10"></script>
   <div id="boot">
     <div class="boot-logo"><span class="dot"></span>Control Finanzas MS</div>
     <div class="boot-bar"><span></span></div>
@@ -873,7 +873,7 @@
   <script src="app/recurring.js?v=33"></script>
   <script src="app/goals.js?v=33"></script>
   <script src="app/util.js?v=33"></script>
-  <script src="db.js?v=27"></script>
+  <script src="db.js?v=28"></script>
   <script src="settings.js?v=30"></script>
   <script src="a11y.js?v=1"></script>
 </body>
