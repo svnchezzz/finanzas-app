@@ -31,7 +31,27 @@ function timeoutFetch_(input, init){
   return fetch(input, opts).finally(function(){ clearTimeout(t); });
 }
 
+// ¿Se abrió la app desde el enlace de "cambiar contraseña" del correo? Se lee ANTES de crear el
+// cliente, porque Supabase consume y limpia esos datos de la URL al iniciar.
+const RECOVERY_LINK_ = /(^|[#&?])type=recovery(&|$)/.test(location.hash + '&' + location.search.slice(1));
+const LINK_ERROR_ = /(^|[#&?])error_code=/.test(location.hash + '&' + location.search.slice(1));
+let recoveryPending_ = RECOVERY_LINK_, appStarted_ = false;
+
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { global: { fetch: timeoutFetch_ } });
+
+// Con enlaces tipo PKCE (?code=…) no hay type=recovery en la URL: Supabase avisa con este evento.
+sb.auth.onAuthStateChange(function(ev){
+  if (ev !== 'PASSWORD_RECOVERY') return;
+  recoveryPending_ = true;
+  if (document.getElementById('login-ov')) showResetPassword_();
+});
+
+// A dónde vuelve el enlace del correo de recuperación: en la web, esta misma página (la app pide la
+// contraseña nueva); en el APK, la página de GitHub Pages que la pide (docs/restablecer.html).
+function authRedirectUrl_(){
+  const nativo = window.Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform();
+  return nativo ? 'https://svnchezzz.github.io/finanzas-app/restablecer.html' : location.origin + location.pathname;
+}
 
 const PALETTE_BY_TYPE = {
   Income:  ['#10B981','#059669','#047857','#065F46','#14B8A6','#0891B2','#06B6D4','#0ea5e9'],
@@ -467,7 +487,7 @@ async function fetchAll_(){
 }
 
 /* Vuelca datos frescos del servidor en la app y repinta la pantalla.
-   Actualiza los mismos campos que fija init() en app.js. */
+   Actualiza los mismos campos que fija init() en app/core.js. */
 function applyFreshData_(data){
   if (!window.S || !data) return;
   window.S.transactions = data.transactions;
@@ -784,6 +804,7 @@ const API = {
 
   /* ═══════════════ EXPORTACIÓN (cliente) ═══════════════ */
   async exportExcel(scope){
+    await loadLib_('vendor/xlsx-js-style.min.js');
     if (!window.XLSX) throw new Error('Falta la librería de Excel. Recarga la app.');
     const list = exportFilter_(scope);
     const sum = summary_(list);
@@ -826,6 +847,8 @@ const API = {
   },
 
   async exportPdf(scope){
+    await loadLib_('vendor/jspdf.umd.min.js');
+    await loadLib_('vendor/jspdf.plugin.autotable.min.js');
     if (!window.jspdf || !window.jspdf.jsPDF) throw new Error('Falta la librería de PDF. Recarga la app.');
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit:'pt', format:'a4' });
@@ -871,6 +894,18 @@ const API = {
 };
 
 /* ═══════════════ Helpers de exportación ═══════════════ */
+// Las librerías de Excel/PDF (~830 KB) solo se descargan y parsean la primera vez que se exporta
+const libs_ = {};
+function loadLib_(src){
+  if (!libs_[src]) libs_[src] = new Promise(function(resolve, reject){
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = function(){ delete libs_[src]; reject(new Error('No se pudo cargar '+src+'. Recarga la app.')); };
+    document.head.appendChild(s);
+  });
+  return libs_[src];
+}
 /* Carga una imagen del propio paquete (p.ej. logo.png) como dataURL para incrustarla en el PDF */
 function loadImageDataUrl_(url){
   return new Promise(function(resolve){
@@ -910,7 +945,7 @@ function summary_(list){
   return { ingresos:ing, gastos:gas, ahorro:aho, disponible:ing-gas-aho, n:list.length };
 }
 
-/* ═══════════════ gs(): el puente que tu app.js usa ═══════════════ */
+/* ═══════════════ gs(): el puente que app/*.js usa ═══════════════ */
 window.isOffline = isOffline_;
 
 window.gs = function(fn){
@@ -986,6 +1021,16 @@ function injectLogin_(){
   #login-card .lswitch{width:100%;border:0;background:transparent;color:var(--ink-2,#5C5C5C);font-family:inherit;font-size:13px;margin-top:14px;cursor:pointer;padding:8px}
   #login-card .lswitch b{color:var(--ink,#0A0A0A)}
   #login-card[data-mode="in"] #login-up{display:none}
+  #login-card .lforgot{display:block;margin:8px 0 0 auto;border:0;background:transparent;padding:6px 0;cursor:pointer;
+    font-family:inherit;font-size:12.5px;font-weight:500;color:var(--ink-2,#5C5C5C)}
+  #login-card .lforgot:hover{color:var(--ink,#0A0A0A)}
+  #login-send,#login-reset,#login-card .lreset{display:none}
+  #login-card[data-mode="up"] .lforgot{display:none}
+  #login-card[data-mode="forgot"] :is(.lpass,.lforgot,#login-in,#login-up){display:none}
+  #login-card[data-mode="forgot"] #login-send{display:block}
+  #login-card[data-mode="reset"] :is(.lmail,.lforgot,#login-in,#login-up,#login-switch){display:none}
+  #login-card[data-mode="reset"] .lreset{display:block}
+  #login-card[data-mode="reset"] #login-reset{display:block}
   #login-card[data-mode="up"] #login-in{display:none}
   #signup-ov{position:fixed;inset:0;z-index:600;display:none;align-items:center;justify-content:center;padding:24px;
     background:var(--scrim,rgba(10,10,10,.35))}
@@ -1011,31 +1056,48 @@ function injectLogin_(){
     <div id="login-card" data-mode="in">
       <h1 id="login-title">Bienvenido</h1>
       <p class="sub" id="login-sub">Inicia sesión para continuar con tus finanzas.</p>
-      <label>Correo electrónico</label>
-      <input type="email" id="login-email" placeholder="tucorreo@ejemplo.com" autocomplete="email">
-      <label>Contraseña</label>
-      <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password">
+      <label for="login-email" class="lmail">Correo electrónico</label>
+      <input type="email" id="login-email" class="lmail" placeholder="tucorreo@ejemplo.com" autocomplete="email">
+      <label for="login-pass" class="lpass" id="login-pass-lbl">Contraseña</label>
+      <input type="password" id="login-pass" class="lpass" placeholder="••••••••" autocomplete="current-password">
+      <label for="login-pass2" class="lreset">Repite la contraseña</label>
+      <input type="password" id="login-pass2" class="lreset" placeholder="••••••••" autocomplete="new-password">
+      <button class="lforgot" id="login-forgot" type="button">¿Olvidaste tu contraseña?</button>
       <button class="lbtn" id="login-in">Entrar</button>
       <button class="lbtn" id="login-up">Crear cuenta</button>
+      <button class="lbtn" id="login-send">Enviar enlace</button>
+      <button class="lbtn" id="login-reset">Guardar nueva contraseña</button>
       <div id="login-msg"></div>
       <button class="lswitch" id="login-switch" type="button">¿No tienes cuenta? <b>Crear cuenta</b></button>
     </div>`;
   document.body.appendChild(ov);
 
-  // Dos vistas: iniciar sesión ↔ crear cuenta
-  function setLoginMode_(goUp){
-    document.getElementById('login-card').setAttribute('data-mode',goUp?'up':'in');
-    document.getElementById('login-title').textContent=goUp?'Crear cuenta':'Bienvenido';
-    document.getElementById('login-sub').textContent=goUp
-      ?'Crea tu cuenta con tu correo y una contraseña de al menos 6 caracteres.'
-      :'Inicia sesión para continuar con tus finanzas.';
-    document.getElementById('login-switch').innerHTML=goUp
-      ?'¿Ya tienes cuenta? <b>Inicia sesión</b>'
-      :'¿No tienes cuenta? <b>Crear cuenta</b>';
+  // Vistas: iniciar sesión · crear cuenta · olvidé mi contraseña · poner contraseña nueva (desde el correo)
+  const MODOS_ = {
+    in:     ['Bienvenido', 'Inicia sesión para continuar con tus finanzas.', '¿No tienes cuenta? <b>Crear cuenta</b>'],
+    up:     ['Crear cuenta', 'Crea tu cuenta con tu correo y una contraseña de al menos 6 caracteres.', '¿Ya tienes cuenta? <b>Inicia sesión</b>'],
+    forgot: ['Recuperar contraseña', 'Escribe tu correo y te enviaremos un enlace para crear una contraseña nueva.', '<b>Volver a iniciar sesión</b>'],
+    reset:  ['Nueva contraseña', 'Escribe tu nueva contraseña (mínimo 6 caracteres).', '']
+  };
+  function setLoginMode_(m){
+    const mode = m===true ? 'up' : m===false ? 'in' : m;
+    const t = MODOS_[mode];
+    document.getElementById('login-card').setAttribute('data-mode',mode);
+    document.getElementById('login-title').textContent=t[0];
+    document.getElementById('login-sub').textContent=t[1];
+    document.getElementById('login-switch').innerHTML=t[2];
+    document.getElementById('login-pass-lbl').textContent = mode==='reset' ? 'Nueva contraseña' : 'Contraseña';
+    document.getElementById('login-pass').setAttribute('autocomplete', mode==='in' ? 'current-password' : 'new-password');
   }
+  window.setLoginMode_ = setLoginMode_;
   document.getElementById('login-switch').onclick = function(){
-    setLoginMode_(document.getElementById('login-card').getAttribute('data-mode')==='in');
+    setLoginMode_(document.getElementById('login-card').getAttribute('data-mode')==='in' ? 'up' : 'in');
     document.getElementById('login-msg').textContent='';
+  };
+  document.getElementById('login-forgot').onclick = function(){
+    setLoginMode_('forgot');
+    document.getElementById('login-msg').textContent='';
+    document.getElementById('login-email').focus();
   };
 
   // Recuadro de "confirma tu correo" tras crear la cuenta
@@ -1068,8 +1130,40 @@ function injectLogin_(){
     msg().style.color='var(--neg,#C93B3B)'; msg().textContent='Entrando…';
     const { error } = await sb.auth.signInWithPassword({ email:email(), password:pass() });
     if (error) msg().textContent = traducirError_(error.message);
-    else startApp_();
+    else { if (window.playIntro) window.playIntro(); startApp_(); }
   };
+  // Olvidé mi contraseña: Supabase manda un correo con un enlace que vuelve a la app en modo "reset"
+  document.getElementById('login-send').onclick = async function(){
+    msg().style.color='var(--neg,#C93B3B)';
+    if (!/^\S+@\S+\.\S+$/.test(email())){ msg().textContent='Escribe el correo de tu cuenta.'; return; }
+    if (isOffline_()){ msg().textContent='Sin conexión: conéctate para recibir el correo.'; return; }
+    this.disabled=true; msg().textContent='Enviando…';
+    const { error } = await sb.auth.resetPasswordForEmail(email(), { redirectTo: authRedirectUrl_() });
+    this.disabled=false;
+    if (error){ msg().textContent = traducirError_(error.message); return; }
+    msg().style.color='var(--pos,#0E8A4A)';
+    // Mismo mensaje exista o no la cuenta: no se revela qué correos están registrados
+    msg().textContent='Si ese correo tiene cuenta, te llegará un enlace para cambiar la contraseña. Revisa también spam.';
+  };
+  // Contraseña nueva (llegando desde el enlace del correo, ya con sesión de recuperación)
+  document.getElementById('login-reset').onclick = async function(){
+    msg().style.color='var(--neg,#C93B3B)';
+    const p1=pass(), p2=document.getElementById('login-pass2').value;
+    if (p1.length < 6){ msg().textContent='La contraseña debe tener al menos 6 caracteres.'; return; }
+    if (p1 !== p2){ msg().textContent='Las contraseñas no coinciden.'; return; }
+    this.disabled=true; msg().textContent='Guardando…';
+    const { error } = await sb.auth.updateUser({ password:p1 });
+    this.disabled=false;
+    if (error){ msg().textContent = traducirError_(error.message); return; }
+    recoveryPending_ = false;
+    try{ history.replaceState(null, '', location.pathname); }catch(e){}
+    document.getElementById('login-pass').value=''; document.getElementById('login-pass2').value='';
+    msg().textContent='';
+    if (window.Haptic && Haptic.success) Haptic.success();
+    if (appStarted_){ document.getElementById('login-ov').classList.remove('show'); if (window.toast) toast('Contraseña actualizada','ok'); }
+    else { if (window.playIntro) window.playIntro(); startApp_(); }
+  };
+
   document.getElementById('login-up').onclick = async ()=>{
     msg().style.color='var(--neg,#C93B3B)';
     if (!email() || !pass()){
@@ -1096,11 +1190,22 @@ function traducirError_(m){
   if (/Invalid login/i.test(m)) return 'Correo o contraseña incorrectos.';
   if (/already registered/i.test(m)) return 'Ese correo ya tiene cuenta. Pulsa "Entrar".';
   if (/at least 6/i.test(m)) return 'La contraseña debe tener al menos 6 caracteres.';
+  if (/rate limit|only request this after|too many/i.test(m)) return 'Espera un momento antes de pedir otro correo.';
+  if (/different from the old|same.*password/i.test(m)) return 'La nueva contraseña debe ser distinta a la anterior.';
+  if (/session.*missing|expired|invalid.*(token|flow)/i.test(m)) return 'El enlace venció o ya se usó. Pide uno nuevo.';
+  if (/Email not confirmed/i.test(m)) return 'Confirma tu correo antes de entrar (revisa tu bandeja y spam).';
   return m;
 }
 function showLogin_(){ document.getElementById('login-ov').classList.add('show'); }
+function showResetPassword_(){
+  window.setLoginMode_('reset');
+  const m=document.getElementById('login-msg'); if (m) m.textContent='';
+  showLogin_();
+  setTimeout(function(){ const p=document.getElementById('login-pass'); if (p) p.focus({ preventScroll:true }); }, 50);
+}
 
 async function startApp_(){
+  appStarted_ = true;
   // Obtener el usuario SIN llamar a internet (lee la sesión guardada en el teléfono)
   let uid = null;
   try{
@@ -1160,6 +1265,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     session = haySesionLocal ? 'LOCAL' : null;
   }
 
+  // Llegó desde el enlace del correo: primero se pone la contraseña nueva, luego entra
+  if (recoveryPending_ && session && session !== 'LOCAL'){ showResetPassword_(); return; }
+  if (LINK_ERROR_) try{ history.replaceState(null, '', location.pathname); }catch(e){}
+  if (LINK_ERROR_ && !session){
+    showLogin_();
+    const m=document.getElementById('login-msg');
+    m.style.color='var(--neg,#C93B3B)'; m.textContent='El enlace venció o ya se usó. Pide uno nuevo con "¿Olvidaste tu contraseña?".';
+    return;
+  }
   if (session) startApp_();
   else showLogin_();
 });

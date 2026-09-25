@@ -1,8 +1,11 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <base target="_top">
   <meta charset="utf-8">
+  <!-- Intro: fondo del tema desde el primer pintado para que no parpadee (intro.js lo retira) -->
+  <style>html.ci-on,html.ci-on body{background:#F7F7F5!important}html.ci-on[data-theme="dark"],html.ci-on[data-theme="dark"] body{background:#0A0A0A!important}</style>
+  <script>document.documentElement.classList.add('ci-on');</script>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <!-- PWA / instalable en pantalla de inicio -->
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -19,16 +22,28 @@
     document.documentElement.setAttribute('data-theme',t);
     var m=document.querySelector('meta[name="theme-color"]');
     if(m)m.setAttribute('content',t==='dark'?'#0A0A0A':'#F7F7F5');
-  }catch(e){}})();
+  }catch(e){}
+  // Cambio de tema sin tirones: se aplica de golpe (sin transiciones por elemento) y,
+  // si el navegador lo soporta, se funde la captura anterior con la nueva en GPU.
+  window.switchTheme=function(apply){
+    var root=document.documentElement;
+    var reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+    root.classList.add('theme-switching');
+    function done(){requestAnimationFrame(function(){requestAnimationFrame(function(){root.classList.remove('theme-switching');});});}
+    if(document.startViewTransition&&!reduce){
+      try{var vt=document.startViewTransition(apply);vt.finished.then(done,done);return;}catch(e){}
+    }
+    apply();done();
+  };
+  })();
   </script>
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' rx='40' fill='%234F46E5'/%3E%3Ctext x='50%25' y='54%25' font-size='90' text-anchor='middle' dominant-baseline='middle' fill='white' font-family='Arial' font-weight='bold'%3E%24%3C/text%3E%3C/svg%3E">
   <!-- Fuentes locales (sin internet). Antes venían de fonts.googleapis.com -->
   <link rel="stylesheet" href="vendor/fonts/app-fonts.css">
-  <!-- Chart.js local (sin internet). Antes venía de cdn.jsdelivr.net -->
-  <script src="vendor/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="styles.css?v=39">
+  <link rel="stylesheet" href="styles.css?v=50">
 </head>
 <body>
+  <script src="intro.js?v=8"></script>
   <div id="boot">
     <div class="boot-logo"><span class="dot"></span>Control Finanzas MS</div>
     <div class="boot-bar"><span></span></div>
@@ -189,7 +204,7 @@
         </div>
         <div class="search-box hist-search hidden" id="histSearchRow">
           <span class="search-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
-          <input type="text" id="histSearch" placeholder="Buscar…" autocomplete="off">
+          <input type="text" id="histSearch" aria-label="Buscar movimientos" placeholder="Buscar…" autocomplete="off">
           <button type="button" class="search-clear" id="histSearchClear" aria-label="Limpiar">✕</button>
         </div>
         <div id="historyList" class="history-list"></div>
@@ -259,7 +274,7 @@
 
   <!-- Menú "Más" (móvil) -->
   <div class="sheet-backdrop" id="moreBackdrop">
-    <div class="action-menu" id="moreMenu">
+    <div class="action-menu" id="moreMenu" role="dialog" aria-modal="true" aria-label="Más opciones">
       <button class="action-opt" data-view="pending"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10"/><path d="M7 21h10"/><path d="M8.5 3v3.2L12 12l3.5-5.8V3"/><path d="M8.5 21v-3.2L12 12l3.5 5.8V21"/><path d="M9.9 18.6h4.2"/></svg></span>Pendientes</button>
       <button class="action-opt" data-view="budgets"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="14"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="10"/></svg></span>Presupuestos</button>
       <button class="action-opt" data-view="recurring"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></span>Recurrentes</button>
@@ -269,7 +284,7 @@
 
   <!-- Selector de acción -->
   <div class="sheet-backdrop" id="actionBackdrop">
-    <div class="action-menu" id="actionMenu">
+    <div class="action-menu" id="actionMenu" role="dialog" aria-modal="true" aria-label="¿Qué quieres agregar?">
       <button class="action-opt income"  data-type="Income"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg></span>Ingreso</button>
       <button class="action-opt expense" data-type="Expense"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span>Gasto</button>
       <button class="action-opt savings" data-type="Savings"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 12l10 10 10-10z"/></svg></span>Ahorro</button>
@@ -279,19 +294,19 @@
 
   <!-- Modal agregar -->
   <div class="modal-backdrop" id="modalBackdrop">
-    <div class="modal" id="txModal">
+    <div class="modal" id="txModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <div class="modal-head"><h2 id="modalTitle">Agregar</h2><button class="icon-btn" id="modalClose" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
       <div class="modal-body">
-        <label class="field-label">Categoría</label>
-        <div class="chips" id="chipRow"></div>
+        <label class="field-label" id="lbl-chipRow">Categoría</label>
+        <div class="chips" id="chipRow" role="group" aria-labelledby="lbl-chipRow"></div>
         <div class="newcat" id="newCatRow">
-          <input type="text" id="newCatInput" placeholder="Nombre de la categoría…" maxlength="28">
+          <input type="text" id="newCatInput" aria-label="Nombre de la nueva categoría" placeholder="Nombre de la categoría…" maxlength="28">
           <button class="btn-ghost" id="newCatSave">Agregar</button>
         </div>
 
         <div id="sourceRow" class="source-row hidden">
-          <label class="field-label">Origen de fondos</label>
-          <div class="segmented inline" id="sourceSeg">
+          <label class="field-label" id="lbl-sourceSeg">Origen de fondos</label>
+          <div class="segmented inline" id="sourceSeg" role="group" aria-labelledby="lbl-sourceSeg">
             <button data-source="Salary" class="active">Disponible actual</button>
             <button data-source="Other">Nuevo ingreso</button>
           </div>
@@ -299,35 +314,35 @@
         </div>
 
         <div id="goalRow" class="hidden">
-          <label class="field-label">¿Para una meta de ahorro? (opcional)</label>
+          <label class="field-label" for="txGoalSelect">¿Para una meta de ahorro? (opcional)</label>
           <select id="txGoalSelect" class="full-input"></select>
           <div id="txNewGoalRow" class="hidden" style="margin-top:10px">
-            <input type="text" id="txNewGoalName" class="full-input" placeholder="Nombre de la meta (ej. Fondo de emergencia)" maxlength="40" style="margin-bottom:10px">
+            <input type="text" id="txNewGoalName" aria-label="Nombre de la nueva meta" class="full-input" placeholder="Nombre de la meta (ej. Fondo de emergencia)" maxlength="40" style="margin-bottom:10px">
             <div class="amount-field"><span class="cur" id="txNewGoalCur">$</span>
-              <input type="text" inputmode="numeric" pattern="[0-9]*" id="txNewGoalTarget" placeholder="Objetivo (ej. 5.000.000)" autocomplete="off"></div>
+              <input type="text" inputmode="numeric" pattern="[0-9]*" id="txNewGoalTarget" aria-label="Objetivo de la nueva meta" placeholder="Objetivo (ej. 5.000.000)" autocomplete="off"></div>
           </div>
         </div>
 
         <label class="check-row hidden" id="fromSavingsRow"><input type="checkbox" id="fromSavings"> <span>Pagar con dinero del ahorro (sale de tu ahorro y cuenta como gasto)</span></label>
 
         <div id="expGoalRow" class="hidden" style="margin-top:14px">
-          <label class="field-label">¿De dónde sale ese ahorro?</label>
+          <label class="field-label" for="expGoalSelect">¿De dónde sale ese ahorro?</label>
           <select id="expGoalSelect" class="full-input"></select>
           <p class="hint" id="expGoalHint"></p>
         </div>
 
-        <label class="field-label">Monto</label>
+        <label class="field-label" for="amountInput">Monto</label>
         <div class="amount-field"><span class="cur" id="curSign">$</span>
           <input type="text" inputmode="numeric" pattern="[0-9]*" id="amountInput" placeholder="0" autocomplete="off"></div>
 
         <div id="txColorRow" class="hidden">
-          <label class="field-label">Color de la nueva etiqueta</label>
-          <div class="color-pick"><div class="swatches" id="swatchRow"></div><button type="button" class="swatch-custom" id="swatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
+          <label class="field-label" id="lbl-swatchRow">Color de la nueva etiqueta</label>
+          <div class="color-pick"><div class="swatches" id="swatchRow" role="group" aria-labelledby="lbl-swatchRow"></div><button type="button" class="swatch-custom" id="swatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
         </div>
 
         <div class="two-col">
-          <div><label class="field-label">Fecha</label><button type="button" class="date-field" data-for="dateInput"><span class="df-txt">—</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></button><input type="hidden" id="dateInput"></div>
-          <div><label class="field-label">Nota (opcional)</label><input type="text" id="noteInput" placeholder="ej. taxi a la oficina" maxlength="60"></div>
+          <div><label class="field-label" id="lbl-dateInput">Fecha</label><button type="button" class="date-field" data-for="dateInput" id="df-dateInput" aria-labelledby="lbl-dateInput df-dateInput"><span class="df-txt">—</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></button><input type="hidden" id="dateInput"></div>
+          <div><label class="field-label" for="noteInput">Nota (opcional)</label><input type="text" id="noteInput" placeholder="ej. taxi a la oficina" maxlength="60"></div>
         </div>
       </div>
       <div class="modal-foot"><button class="btn-ghost" id="cancelBtn">Cancelar</button><button class="btn-primary" id="saveBtn">Guardar</button></div>
@@ -336,11 +351,11 @@
 
   <!-- Modal exportar -->
   <div class="modal-backdrop" id="exportBackdrop">
-    <div class="modal" id="exportModal">
-      <div class="modal-head"><h2>Exportar datos</h2><button class="icon-btn" id="exportClose" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+    <div class="modal" id="exportModal" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+      <div class="modal-head"><h2 id="exportTitle">Exportar datos</h2><button class="icon-btn" id="exportClose" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
       <div class="modal-body">
-        <label class="field-label">¿Qué quieres exportar?</label>
-        <div class="segmented inline scope" id="scopeSeg">
+        <label class="field-label" id="lbl-scopeSeg">¿Qué quieres exportar?</label>
+        <div class="segmented inline scope" id="scopeSeg" role="group" aria-labelledby="lbl-scopeSeg">
           <button data-scope="current" class="active">Periodo actual</button>
           <button data-scope="range">Rango</button>
           <button data-scope="all">Todo</button>
@@ -348,12 +363,12 @@
         <p class="hint" id="scopeHint">Exporta el periodo que ves ahora en el panel.</p>
 
         <div class="range-row" id="rangeRow">
-          <div><label class="field-label">Desde</label><button type="button" class="date-field" data-for="rangeStart"><span class="df-txt">—</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></button><input type="hidden" id="rangeStart"></div>
-          <div><label class="field-label">Hasta</label><button type="button" class="date-field" data-for="rangeEnd"><span class="df-txt">—</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></button><input type="hidden" id="rangeEnd"></div>
+          <div><label class="field-label" id="lbl-rangeStart">Desde</label><button type="button" class="date-field" data-for="rangeStart" id="df-rangeStart" aria-labelledby="lbl-rangeStart df-rangeStart"><span class="df-txt">—</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></button><input type="hidden" id="rangeStart"></div>
+          <div><label class="field-label" id="lbl-rangeEnd">Hasta</label><button type="button" class="date-field" data-for="rangeEnd" id="df-rangeEnd" aria-labelledby="lbl-rangeEnd df-rangeEnd"><span class="df-txt">—</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></button><input type="hidden" id="rangeEnd"></div>
         </div>
 
-        <label class="field-label">Formato</label>
-        <div class="export-grid">
+        <label class="field-label" id="lbl-exportFormat">Formato</label>
+        <div class="export-grid" role="group" aria-labelledby="lbl-exportFormat">
           <button class="format-btn xlsx" id="btnXlsx">
             <span class="fb-ico">XLS</span><span>Excel</span><span class="fb-sub">.xlsx con formato</span>
           </button>
@@ -368,29 +383,29 @@
 
   <!-- Modal pendiente -->
   <div class="modal-backdrop" id="pendBackdrop">
-    <div class="modal" id="pendModal">
+    <div class="modal" id="pendModal" role="dialog" aria-modal="true" aria-labelledby="pendTitle">
       <div class="modal-head"><h2 id="pendTitle">Ingreso / Pago pendiente</h2><button class="icon-btn" id="pendClose" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
       <div class="modal-body">
-        <label class="field-label">¿Es un ingreso o un pago?</label>
-        <div class="segmented inline" id="pendKindSeg">
+        <label class="field-label" id="lbl-pendKindSeg">¿Es un ingreso o un pago?</label>
+        <div class="segmented inline" id="pendKindSeg" role="group" aria-labelledby="lbl-pendKindSeg">
           <button data-kind="Income" class="active">Ingreso por cobrar</button>
           <button data-kind="Expense">Pago por hacer</button>
         </div>
 
-        <label class="field-label">Categoría</label>
-        <div class="chips" id="pendChipRow"></div>
+        <label class="field-label" id="lbl-pendChipRow">Categoría</label>
+        <div class="chips" id="pendChipRow" role="group" aria-labelledby="lbl-pendChipRow"></div>
         <div class="newcat" id="pendNewCatRow">
-          <input type="text" id="pendNewCatInput" placeholder="Nombre de la categoría…" maxlength="28">
+          <input type="text" id="pendNewCatInput" aria-label="Nombre de la nueva categoría" placeholder="Nombre de la categoría…" maxlength="28">
           <button class="btn-ghost" id="pendNewCatSave">Agregar</button>
         </div>
 
-        <label class="field-label">Monto</label>
+        <label class="field-label" for="pendAmount">Monto</label>
         <div class="amount-field"><span class="cur" id="pendCur">$</span>
           <input type="text" inputmode="numeric" pattern="[0-9]*" id="pendAmount" placeholder="0" autocomplete="off"></div>
 
         <div class="two-col">
-          <div><label class="field-label">Fecha acordada</label><button type="button" class="date-field" data-for="pendDate"><span class="df-txt">—</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></button><input type="hidden" id="pendDate"></div>
-          <div><label class="field-label">Método de pago</label>
+          <div><label class="field-label" id="lbl-pendDate">Fecha acordada</label><button type="button" class="date-field" data-for="pendDate" id="df-pendDate" aria-labelledby="lbl-pendDate df-pendDate"><span class="df-txt">—</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></button><input type="hidden" id="pendDate"></div>
+          <div><label class="field-label" for="pendMethod">Método de pago</label>
             <select id="pendMethod" class="select">
               <option value="Transferencia">Transferencia</option>
               <option value="Efectivo">Efectivo</option>
@@ -401,10 +416,10 @@
           </div>
         </div>
 
-        <label class="field-label">Color</label>
-        <div class="color-pick"><div class="swatches" id="pendSwatchRow"></div><button type="button" class="swatch-custom" id="pendSwatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
+        <label class="field-label" id="lbl-pendSwatchRow">Color</label>
+        <div class="color-pick"><div class="swatches" id="pendSwatchRow" role="group" aria-labelledby="lbl-pendSwatchRow"></div><button type="button" class="swatch-custom" id="pendSwatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
 
-        <label class="field-label">Nota (opcional)</label>
+        <label class="field-label" for="pendNote">Nota (opcional)</label>
         <input type="text" id="pendNote" class="full-input" placeholder="ej. factura #123 / cliente X" maxlength="60">
 
         <label class="check-row"><input type="checkbox" id="pendDone"> <span>Marcar como completado (ya se pagó / se recibió)</span></label>
@@ -415,19 +430,19 @@
 
   <!-- Modal editar categoría -->
   <div class="modal-backdrop" id="editCatBackdrop">
-    <div class="modal" id="editCatModal" style="width:min(480px,94vw)">
+    <div class="modal" id="editCatModal" role="dialog" aria-modal="true" aria-labelledby="editCatTitle" style="width:min(480px,94vw)">
       <div class="modal-head"><h2 id="editCatTitle">Editar categoría</h2><button class="icon-btn" id="editCatClose" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
       <div class="modal-body">
-        <label class="field-label">Nombre</label>
+        <label class="field-label" for="editCatName">Nombre</label>
         <input type="text" id="editCatName" class="full-input" maxlength="28" placeholder="Nombre de la categoría…">
 
-        <label class="field-label">Color</label>
+        <label class="field-label" id="lbl-editCatSwatches">Color</label>
         <p class="hint" id="editCatHint" style="margin-top:0">Selecciona un color.</p>
-        <div class="color-pick"><div class="swatches" id="editCatSwatches"></div><button type="button" class="swatch-custom" id="editCatSwatchesCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
+        <div class="color-pick"><div class="swatches" id="editCatSwatches" role="group" aria-labelledby="lbl-editCatSwatches"></div><button type="button" class="swatch-custom" id="editCatSwatchesCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
 
-        <label class="field-label">Icono</label>
+        <label class="field-label" id="lbl-editCatIcons">Icono</label>
         <p class="hint" style="margin-top:0">Se asigna solo según el nombre; aquí puedes fijar uno.</p>
-        <div class="icon-grid" id="editCatIcons"></div>
+        <div class="icon-grid" id="editCatIcons" role="group" aria-labelledby="lbl-editCatIcons"></div>
 
         <div class="cat-preview">
           <span class="cat-preview-dot" id="editCatPreviewDot"></span>
@@ -443,7 +458,7 @@
 
   <!-- Modal confirmación / mini-input -->
   <div class="modal-backdrop" id="confirmBackdrop">
-    <div class="modal sm" id="confirmModal">
+    <div class="modal sm" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
       <div class="modal-head"><h2 id="confirmTitle">¿Confirmar?</h2><button class="icon-btn" id="confirmCancel" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
       <div class="modal-body"><div id="confirmMsg" class="confirm-msg"></div></div>
       <div class="modal-foot"><button class="btn-ghost" id="confirmCancelBtn" onclick="closeConfirm()">Cancelar</button><button class="btn-primary danger" id="confirmOk">Confirmar</button></div>
@@ -452,30 +467,30 @@
 
   <!-- Modal recurrencia -->
   <div class="modal-backdrop" id="recurBackdrop">
-    <div class="modal" id="recurModal">
+    <div class="modal" id="recurModal" role="dialog" aria-modal="true" aria-labelledby="recurTitle">
       <div class="modal-head"><h2 id="recurTitle">Nuevo movimiento recurrente</h2><button class="icon-btn" id="recurClose" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
       <div class="modal-body">
-        <label class="field-label">Tipo</label>
-        <div class="segmented inline" id="recurKindSeg">
+        <label class="field-label" id="lbl-recurKindSeg">Tipo</label>
+        <div class="segmented inline" id="recurKindSeg" role="group" aria-labelledby="lbl-recurKindSeg">
           <button data-rk="Income">Ingreso</button>
           <button data-rk="Expense" class="active">Gasto</button>
           <button data-rk="Savings">Ahorro</button>
         </div>
 
-        <label class="field-label">Categoría</label>
-        <div class="chips" id="recurChipRow"></div>
+        <label class="field-label" id="lbl-recurChipRow">Categoría</label>
+        <div class="chips" id="recurChipRow" role="group" aria-labelledby="lbl-recurChipRow"></div>
 
-        <label class="field-label">Monto</label>
+        <label class="field-label" for="recurAmount">Monto</label>
         <div class="amount-field"><span class="cur" id="recurCur">$</span>
           <input type="text" inputmode="numeric" pattern="[0-9]*" id="recurAmount" placeholder="0" autocomplete="off"></div>
 
         <div class="two-col">
-          <div><label class="field-label">Día del mes</label><input type="number" id="recurDay" min="1" max="31" value="1"></div>
-          <div><label class="field-label">Nota (opcional)</label><input type="text" id="recurNote" placeholder="ej. Netflix" maxlength="40"></div>
+          <div><label class="field-label" for="recurDay">Día del mes</label><input type="number" id="recurDay" min="1" max="31" value="1"></div>
+          <div><label class="field-label" for="recurNote">Nota (opcional)</label><input type="text" id="recurNote" placeholder="ej. Netflix" maxlength="40"></div>
         </div>
 
-        <label class="field-label">Color</label>
-        <div class="color-pick"><div class="swatches" id="recurSwatchRow"></div><button type="button" class="swatch-custom" id="recurSwatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
+        <label class="field-label" id="lbl-recurSwatchRow">Color</label>
+        <div class="color-pick"><div class="swatches" id="recurSwatchRow" role="group" aria-labelledby="lbl-recurSwatchRow"></div><button type="button" class="swatch-custom" id="recurSwatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
 
         <label class="check-row"><input type="checkbox" id="recurActive" checked> <span>Activo (se generará automáticamente cada mes)</span></label>
       </div>
@@ -485,25 +500,25 @@
 
   <!-- Modal meta -->
   <div class="modal-backdrop" id="goalBackdrop">
-    <div class="modal" id="goalModal">
+    <div class="modal" id="goalModal" role="dialog" aria-modal="true" aria-labelledby="goalTitle">
       <div class="modal-head"><h2 id="goalTitle">Nueva meta de ahorro</h2><button class="icon-btn" id="goalClose" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
       <div class="modal-body">
-        <label class="field-label">Nombre</label>
+        <label class="field-label" for="goalName">Nombre</label>
         <input type="text" id="goalName" class="full-input" maxlength="40" placeholder="ej. Fondo de emergencia">
 
         <div class="two-col">
-          <div><label class="field-label">Objetivo</label>
+          <div><label class="field-label" for="goalTarget">Objetivo</label>
             <div class="amount-field"><span class="cur" id="goalCur">$</span><input type="text" inputmode="numeric" pattern="[0-9]*" id="goalTarget" placeholder="0" autocomplete="off"></div>
           </div>
-          <div><label class="field-label">Ya tienes ahorrado</label>
+          <div><label class="field-label" for="goalSaved">Ya tienes ahorrado</label>
             <div class="amount-field"><span class="cur" id="goalCur2">$</span><input type="text" inputmode="numeric" pattern="[0-9]*" id="goalSaved" placeholder="0" autocomplete="off"></div>
           </div>
         </div>
 
-        <label class="field-label">Color</label>
-        <div class="color-pick"><div class="swatches" id="goalSwatchRow"></div><button type="button" class="swatch-custom" id="goalSwatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
+        <label class="field-label" id="lbl-goalSwatchRow">Color</label>
+        <div class="color-pick"><div class="swatches" id="goalSwatchRow" role="group" aria-labelledby="lbl-goalSwatchRow"></div><button type="button" class="swatch-custom" id="goalSwatchRowCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
 
-        <label class="field-label">Nota (opcional)</label>
+        <label class="field-label" for="goalNote">Nota (opcional)</label>
         <input type="text" id="goalNote" class="full-input" placeholder="ej. para diciembre" maxlength="60">
       </div>
       <div class="modal-foot"><button class="btn-ghost" id="goalCancel">Cancelar</button><button class="btn-primary" id="goalSave">Guardar</button></div>
@@ -513,7 +528,7 @@
   <!-- Modal de Ajustes: Seguridad y Cuenta -->
   <!-- ══ AJUSTES: pestaña completa que entra deslizándose ══════════════════ -->
   <div id="spScrim" aria-hidden="true"></div>
-  <section id="ajustesPanel" class="sp" hidden aria-labelledby="spTitle">
+  <section id="ajustesPanel" class="sp" hidden role="dialog" aria-modal="true" aria-labelledby="spTitle">
     <header class="sp-bar">
       <button class="sp-back" id="ajustesClose" aria-label="Volver">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
@@ -525,10 +540,30 @@
 
       <!-- Perfil -->
       <div class="sp-hero">
-        <div class="sp-avatar" id="accAvatar">·</div>
+        <button type="button" class="sp-avatar" id="accAvatar" aria-label="Foto de perfil" aria-haspopup="menu" aria-expanded="false" title="Foto de perfil">
+          <svg class="sp-av-def" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8.2" r="4.2"/><path d="M3.8 20.4c.9-4 4.3-6.4 8.2-6.4s7.3 2.4 8.2 6.4c.1.6-.3 1.1-.9 1.1H4.7c-.6 0-1-.5-.9-1.1z"/></svg>
+          <img id="accAvatarImg" alt="" hidden>
+          <span class="sp-av-cam" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.4"/></svg></span>
+        </button>
+        <div class="sp-av-menu" id="accAvMenu" role="menu" aria-label="Foto de perfil" hidden>
+          <button type="button" role="menuitem" id="accPhotoChange">Cambiar foto</button>
+          <button type="button" role="menuitem" class="danger" id="accAvatarRemove">Quitar foto</button>
+        </div>
+        <input type="file" id="accAvatarFile" accept="image/*" hidden>
         <div class="sp-hero-txt">
-          <span class="sp-hero-name" id="accEmail">—</span>
+          <div class="sp-nick-row" id="accNickRow">
+            <span class="sp-hero-name" id="accNick">—</span>
+            <button type="button" class="sp-nick-edit" id="accNickEdit" aria-label="Editar apodo" title="Editar apodo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg></button>
+          </div>
+          <form class="sp-nick-form" id="accNickForm" hidden>
+            <div class="sp-nick-line">
+              <input type="text" id="accNickInput" class="sp-nick-input" maxlength="30" placeholder="¿Cómo te llamamos?" aria-label="Apodo" autocomplete="nickname">
+              <button type="submit" class="sp-btn">Guardar</button>
+            </div>
+          </form>
+          <span class="sp-hero-mail" id="accEmail">—</span>
           <span class="sp-hero-sub" id="accStatus">Sesión iniciada</span>
+          <p class="sp-field-msg" id="accNickMsg"></p>
         </div>
       </div>
 
@@ -559,7 +594,7 @@
               <span class="sp-name">Bloqueo con PIN</span>
               <span class="sp-sub" id="pinStateTxt">Protege la app con un PIN de 4 dígitos</span>
             </div>
-            <label class="switch"><input type="checkbox" id="pinToggle"><span class="slider"></span></label>
+            <label class="switch"><input type="checkbox" id="pinToggle" aria-label="Bloqueo con PIN"><span class="slider"></span></label>
           </div>
           <button class="sp-row sp-row-btn hidden" id="pinChangeBtn">
             <div class="sp-info">
@@ -573,7 +608,7 @@
               <span class="sp-name">Huella digital</span>
               <span class="sp-sub" id="bioStateTxt">Desbloquea con tu huella en vez del PIN</span>
             </div>
-            <label class="switch"><input type="checkbox" id="bioToggle"><span class="slider"></span></label>
+            <label class="switch"><input type="checkbox" id="bioToggle" aria-label="Huella digital"><span class="slider"></span></label>
           </div>
         </div>
         <p class="sp-foot">Se pide al abrir la app y cada vez que vuelves a ella. Al exportar no se pide, porque la salida la provoca la propia app.</p>
@@ -588,28 +623,28 @@
               <span class="sp-name">Recordatorio diario</span>
               <span class="sp-sub">A las 8 p.m., si no registraste nada ese día</span>
             </div>
-            <label class="switch"><input type="checkbox" id="ntDaily"><span class="slider"></span></label>
+            <label class="switch"><input type="checkbox" id="ntDaily" aria-label="Recordatorio diario"><span class="slider"></span></label>
           </div>
           <div class="sp-row">
             <div class="sp-info">
               <span class="sp-name">Alertas de presupuesto</span>
               <span class="sp-sub">Avisa al llegar al 80% y al 100%</span>
             </div>
-            <label class="switch"><input type="checkbox" id="ntBudget"><span class="slider"></span></label>
+            <label class="switch"><input type="checkbox" id="ntBudget" aria-label="Alertas de presupuesto"><span class="slider"></span></label>
           </div>
           <div class="sp-row">
             <div class="sp-info">
               <span class="sp-name">Avisos de pendientes</span>
               <span class="sp-sub">Cobros y pagos próximos o vencidos</span>
             </div>
-            <label class="switch"><input type="checkbox" id="ntPend"><span class="slider"></span></label>
+            <label class="switch"><input type="checkbox" id="ntPend" aria-label="Avisos de pendientes"><span class="slider"></span></label>
           </div>
           <div class="sp-row">
             <div class="sp-info">
               <span class="sp-name">Metas de ahorro</span>
               <span class="sp-sub">Avisa al acercarte y al cumplir la meta</span>
             </div>
-            <label class="switch"><input type="checkbox" id="ntGoal"><span class="slider"></span></label>
+            <label class="switch"><input type="checkbox" id="ntGoal" aria-label="Metas de ahorro"><span class="slider"></span></label>
           </div>
           <button class="sp-row sp-row-btn" id="ntTest">
             <div class="sp-info">
@@ -631,7 +666,7 @@
               <span class="sp-name">Símbolo</span>
               <span class="sp-sub">Va delante de cada cifra</span>
             </div>
-            <input type="text" id="curInput" class="sp-mini-input" maxlength="4" inputmode="text" autocomplete="off">
+            <input type="text" id="curInput" aria-label="Símbolo" class="sp-mini-input" maxlength="4" inputmode="text" autocomplete="off">
           </div>
           <div class="sp-row sp-row-stack">
             <div class="sp-info">
@@ -664,16 +699,7 @@
             </div>
             <p class="sp-field-msg" id="accPassMsg"></p>
           </div>
-          <div class="sp-field">
-            <label for="accNewEmail">Nuevo correo</label>
-            <div class="sp-field-row">
-              <input type="email" id="accNewEmail" placeholder="tucorreo@ejemplo.com" autocomplete="email">
-              <button class="sp-btn" id="accEmailBtn">Cambiar</button>
-            </div>
-            <p class="sp-field-msg" id="accEmailMsg"></p>
-          </div>
         </div>
-        <p class="sp-foot">Al cambiar el correo recibirás un mensaje de confirmación en la dirección nueva.</p>
       </section>
 
       <!-- Datos -->
@@ -799,15 +825,15 @@
     btn.addEventListener('click',function(){
       var root=document.documentElement;
       var next=root.getAttribute('data-theme')==='dark'?'light':'dark';
-      root.classList.add('theme-anim');            // todo transiciona colores a la vez
-      root.setAttribute('data-theme',next);
-      try{localStorage.setItem('cfms-theme',next);}catch(e){}
-      if(meta)meta.setAttribute('content',next==='dark'?'#0A0A0A':'#F7F7F5');
-      if(window.Chart){try{Chart.defaults.color=getComputedStyle(root).getPropertyValue('--ink-2').trim();}catch(e){}}
-      window._noChartPulse=true;                   // sin re-animación de entrada de gráficas
-      if(typeof renderAll==='function'){try{renderAll();}catch(e){}}
-      window._noChartPulse=false;
-      setTimeout(function(){root.classList.remove('theme-anim');},420);
+      switchTheme(function(){
+        root.setAttribute('data-theme',next);
+        try{localStorage.setItem('cfms-theme',next);}catch(e){}
+        if(meta)meta.setAttribute('content',next==='dark'?'#0A0A0A':'#F7F7F5');
+        if(window.Chart){try{Chart.defaults.color=getComputedStyle(root).getPropertyValue('--ink-2').trim();}catch(e){}}
+        window._noChartPulse=true;                 // sin re-animación de entrada de gráficas
+        if(typeof renderAll==='function'){try{renderAll();}catch(e){}}
+        window._noChartPulse=false;
+      });
       if(window.Haptic&&Haptic.light)Haptic.light();
     });
   })();
@@ -829,14 +855,26 @@
   <!-- Supabase JS local (sin internet). Antes venía de cdn.jsdelivr.net.
        CRÍTICO: db.js hace supabase.createClient(...) al arrancar; debe estar disponible offline. -->
   <script src="vendor/supabase.min.js"></script>
-  <!-- Exportación: Excel (SheetJS) y PDF (jsPDF + autotable), locales para que funcionen sin internet -->
-  <script src="vendor/xlsx-js-style.min.js"></script>
-  <script src="vendor/jspdf.umd.min.js"></script>
-  <script src="vendor/jspdf.plugin.autotable.min.js"></script>
+  <!-- Chart.js local (sin internet). Al final del body para no retrasar el primer pintado -->
+  <script src="vendor/chart.umd.min.js"></script>
+  <!-- Exportación (xlsx / jspdf): se cargan bajo demanda desde db.js al exportar (loadLib_) -->
   <script src="notify.js?v=21"></script>
   <script src="haptics.js?v=21"></script>
-  <script src="app.js?v=32"></script>
-  <script src="db.js?v=21"></script>
-  <script src="settings.js?v=21"></script>
+  <!-- Cliente de la app, dividido por pantallas (scripts clásicos con ámbito global compartido; el orden importa) -->
+  <script src="app/core.js?v=33"></script>
+  <script src="app/shell.js?v=33"></script>
+  <script src="app/dashboard.js?v=33"></script>
+  <script src="app/history.js?v=33"></script>
+  <script src="app/categories.js?v=33"></script>
+  <script src="app/pending.js?v=33"></script>
+  <script src="app/movement.js?v=33"></script>
+  <script src="app/export.js?v=33"></script>
+  <script src="app/budgets.js?v=33"></script>
+  <script src="app/recurring.js?v=33"></script>
+  <script src="app/goals.js?v=33"></script>
+  <script src="app/util.js?v=33"></script>
+  <script src="db.js?v=25"></script>
+  <script src="settings.js?v=30"></script>
+  <script src="a11y.js?v=1"></script>
 </body>
 </html>

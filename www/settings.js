@@ -234,7 +234,7 @@
     document.body.classList.add('no-scroll');
     syncPinUI(); syncNotifUI(); syncFmtUI(); syncThemeUI(); loadEmail();
     refreshNtPerm();   // estado real del permiso de Android (asíncrono)
-    msgCampo('accPassMsg',''); msgCampo('accEmailMsg','');   // sin mensajes viejos
+    msgCampo('accPassMsg','');   // sin mensajes viejos
     if(window.Haptic&&Haptic.light)Haptic.light();
   }
   function closeAjustes(){
@@ -261,16 +261,17 @@
       ?(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')
       :pref;
     const root=document.documentElement;
-    root.classList.add('theme-anim');
-    root.setAttribute('data-theme',real);
     try{localStorage.setItem('cfms-theme',pref);}catch(e){}
-    const meta=document.querySelector('meta[name="theme-color"]');
-    if(meta)meta.setAttribute('content',real==='dark'?'#0A0A0A':'#F7F7F5');
-    if(window.Chart){try{Chart.defaults.color=getComputedStyle(root).getPropertyValue('--ink-2').trim();}catch(e){}}
-    window._noChartPulse=true;
-    if(typeof window.renderAll==='function'){try{window.renderAll();}catch(e){}}
-    window._noChartPulse=false;
-    setTimeout(function(){root.classList.remove('theme-anim');},420);
+    if(root.getAttribute('data-theme')===real)return;   // mismo tema: nada que repintar
+    window.switchTheme(function(){
+      root.setAttribute('data-theme',real);
+      const meta=document.querySelector('meta[name="theme-color"]');
+      if(meta)meta.setAttribute('content',real==='dark'?'#0A0A0A':'#F7F7F5');
+      if(window.Chart){try{Chart.defaults.color=getComputedStyle(root).getPropertyValue('--ink-2').trim();}catch(e){}}
+      window._noChartPulse=true;
+      if(typeof window.renderAll==='function'){try{window.renderAll();}catch(e){}}
+      window._noChartPulse=false;
+    });
   }
   function syncThemeUI(){
     if(!themeSeg)return;
@@ -299,7 +300,7 @@
     catch(e){return Object.assign({},NT_DEF);}
   }
   function ntWrite(p){try{localStorage.setItem('cfms-notif',JSON.stringify(p));}catch(e){}}
-  // app.js consulta esto antes de mandar cada aviso
+  // app/core.js (ntOn) consulta esto antes de mandar cada aviso
   window.NotifPrefs=function(k){const p=ntRead();return k?!!p[k]:p;};
 
   const NT_IDS={daily:'ntDaily',budget:'ntBudget',pend:'ntPend',goal:'ntGoal'};
@@ -516,24 +517,259 @@
   });
 
   /* Cuenta */
-  async function loadEmail(){
-    const elMail=document.getElementById('accEmail');
-    const elAv=document.getElementById('accAvatar');
+  /* ── Perfil: apodo y foto, ambos sincronizados con la cuenta de Supabase.
+     · Apodo → user_metadata.nickname.
+     · Foto  → Storage, bucket "avatars", archivo <uid>/avatar.jpg; su URL pública va en
+       user_metadata.avatar_url. En el teléfono se guarda una copia (cfms-avatar:<uid>) para
+       verla sin conexión y para dejar pendiente la subida o el borrado si no hay red. ── */
+  let profUser=null;
+  const avKey=function(){return 'cfms-avatar:'+(profUser?profUser.id:'anon');};
+  const nickKey=function(){return 'cfms-nick:'+(profUser?profUser.id:'anon');};
+  function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+  function lsSet(k,v){try{if(v==null)localStorage.removeItem(k);else localStorage.setItem(k,v);return true;}catch(e){return false;}}
+  function nickActual(){
+    const m=profUser&&profUser.user_metadata;
+    return (m&&m.nickname)||lsGet(nickKey())||'';
+  }
+  // Copia local de la foto: {url, data, pend}. pend = 'up' (falta subirla) o 'del' (falta borrarla).
+  // Un valor antiguo "data:…" (fotos guardadas antes de sincronizar) cuenta como subida pendiente.
+  function fotoCache(){
+    const v=lsGet(avKey()); if(!v)return {};
+    if(v.indexOf('data:')===0)return {url:null,data:v,pend:'up'};
+    try{return JSON.parse(v)||{};}catch(e){return {};}
+  }
+  function guardaFotoCache(c){ return lsSet(avKey(), c&&(c.data||c.pend)?JSON.stringify(c):null); }
+  function fotoMostrar(){
+    const c=fotoCache(), meta=profUser&&profUser.user_metadata&&profUser.user_metadata.avatar_url;
+    if(c.pend==='up')return c.data;
+    if(c.pend==='del')return null;
+    if(meta)return (c.url===meta&&c.data)?c.data:meta;
+    return null;
+  }
+  const avPath=function(){return profUser.id+'/avatar.jpg';};
+  let sincronizando=false;
+  // Sube o borra en el servidor lo que haya quedado pendiente; si hay foto remota sin copia local, la guarda
+  async function sincronizarFoto(){
+    if(!profUser||sinRed()||sincronizando)return;
+    sincronizando=true;
+    const c=fotoCache();
+    try{
+      if(c.pend==='up'&&c.data){
+        const blob=await (await fetch(c.data)).blob();
+        const up=await sb.storage.from('avatars').upload(avPath(),blob,{upsert:true,contentType:'image/jpeg',cacheControl:'3600'});
+        if(up.error)throw up.error;
+        const url=sb.storage.from('avatars').getPublicUrl(avPath()).data.publicUrl+'?v='+Date.now();
+        const r=await sb.auth.updateUser({data:{avatar_url:url}}); if(r.error)throw r.error;
+        profUser.user_metadata=Object.assign({},profUser.user_metadata,{avatar_url:url});
+        guardaFotoCache({url:url,data:c.data});
+      }else if(c.pend==='del'){
+        const rm=await sb.storage.from('avatars').remove([avPath()]); if(rm.error)throw rm.error;
+        const r=await sb.auth.updateUser({data:{avatar_url:null}}); if(r.error)throw r.error;
+        profUser.user_metadata=Object.assign({},profUser.user_metadata,{avatar_url:null});
+        guardaFotoCache(null);
+      }else{
+        const meta=profUser.user_metadata&&profUser.user_metadata.avatar_url;
+        if(meta&&c.url!==meta){            // foto puesta desde otro equipo: copia local para verla sin red
+          const b=await (await fetch(meta)).blob();
+          const data=await new Promise(function(ok){const fr=new FileReader();fr.onload=function(){ok(fr.result);};fr.readAsDataURL(b);});
+          guardaFotoCache({url:meta,data:data});
+        }else if(!meta&&c.url){ guardaFotoCache(null); }   // la quitaron desde otro equipo
+      }
+      paintProfile();
+    }catch(e){
+      msgCampo('accNickMsg','La foto quedó en este teléfono, pero no se pudo sincronizar: '+errCuenta(e),'err');
+    }finally{ sincronizando=false; }
+  }
+  function paintProfile(){
+    const em=profUser?profUser.email:null, nick=nickActual();
+    document.getElementById('accNick').textContent=nick||(em?em.split('@')[0]:'Sin sesión');
+    document.getElementById('accEmail').textContent=em||'';
+    const img=document.getElementById('accAvatarImg'), foto=fotoMostrar();
+    if(foto){img.src=foto;img.hidden=false;}else{img.hidden=true;img.removeAttribute('src');}
+    document.getElementById('accAvatarRemove').hidden=!foto;
+    document.getElementById('accAvatar').dataset.foto=foto?'1':'';
+  }
+  let profReady=null;
+  function loadEmail(){ cerrarEdicionPerfil(); profReady=leerPerfil(); return profReady; }
+  // Cada vez que se abre Ajustes el perfil arranca en modo lectura (nombre + lápiz), sin menús abiertos
+  function cerrarEdicionPerfil(){
+    const row=document.getElementById('accNickRow'), form=document.getElementById('accNickForm'), menu=document.getElementById('accAvMenu');
+    if(form)form.hidden=true; if(row)row.hidden=false;
+    if(menu)menu.hidden=true; const av=document.getElementById('accAvatar'); if(av)av.setAttribute('aria-expanded','false');
+  }
+  function perfilListo(){ return profUser ? Promise.resolve() : (profReady||loadEmail()); }
+  async function leerPerfil(){
     const elSt=document.getElementById('accStatus');
-    let em=null;
     try{
       const r=await sb.auth.getSession();
-      em=r&&r.data&&r.data.session&&r.data.session.user?r.data.session.user.email:null;
+      profUser=r&&r.data&&r.data.session?r.data.session.user:null;
     }catch(e){}
-    elMail.textContent=em||'Sin sesión';
-    if(elAv)elAv.textContent=em?em.trim().charAt(0):'·';
+    paintProfile();
+    // Con red, pide el usuario al servidor: trae el apodo y la foto que se hayan cambiado en otro equipo
+    if(profUser&&!sinRed()){
+      try{ const u=await sb.auth.getUser(); if(u&&u.data&&u.data.user){profUser=u.data.user;paintProfile();} }catch(e){}
+      sincronizarFoto();
+    }
     if(elSt){
-      const sinRed=(typeof navigator!=='undefined'&&navigator.onLine===false);
-      elSt.textContent=!em?'No has iniciado sesión'
-        :sinRed?'Sin conexión · los cambios se suben al volver'
+      elSt.textContent=!profUser?'No has iniciado sesión'
+        :sinRed()?'Sin conexión · los cambios se suben al volver'
         :'Sesión iniciada · datos sincronizados';
     }
   }
+  /* Editor de foto: arrastrar para mover, pellizcar / rueda / barra para acercar.
+     El círculo marca lo que se verá; fuera de él la imagen queda oscurecida.
+     Devuelve un JPEG cuadrado de OUT px (o null si se cancela). */
+  const OUT=256;
+  function editarFoto(file){
+    return new Promise(function(resolve,reject){
+      const url=URL.createObjectURL(file), im=new Image();
+      im.onerror=function(){URL.revokeObjectURL(url);reject(new Error('No se pudo leer esa imagen.'));};
+      im.onload=function(){
+        const W=im.naturalWidth, H=im.naturalHeight;
+        const ov=document.createElement('div');
+        ov.className='crop-ov';
+        ov.innerHTML='<div class="crop-card" role="dialog" aria-modal="true" aria-labelledby="cropTitle" tabindex="-1">'+
+          '<h2 id="cropTitle">Ajusta tu foto</h2>'+
+          '<div class="crop-stage"><div class="crop-mask" aria-hidden="true"></div></div>'+
+          '<input type="range" class="crop-zoom" min="1" max="4" step="0.01" value="1" aria-label="Acercar o alejar">'+
+          '<p class="crop-hint">Arrastra para mover · pellizca o usa la barra para acercar</p>'+
+          '<div class="crop-acts"><button type="button" class="sp-btn crop-cancel">Cancelar</button><button type="button" class="crop-ok">Usar foto</button></div>'+
+        '</div>';
+        const stage=ov.querySelector('.crop-stage'), zoomEl=ov.querySelector('.crop-zoom');
+        im.className='crop-img'; im.alt=''; im.draggable=false;
+        stage.insertBefore(im,stage.firstChild);
+        document.body.appendChild(ov);
+        const prevFocus=document.activeElement;
+
+        const S=stage.clientWidth, D=S-40;              // lado del escenario y diámetro del círculo
+        const base=D/Math.min(W,H);                      // escala mínima: la foto cubre el círculo
+        let zoom=1, x=0, y=0;                            // desplazamiento del centro de la foto (px de pantalla)
+        function clamp(){
+          const sc=base*zoom, mx=Math.max(0,(W*sc-D)/2), my=Math.max(0,(H*sc-D)/2);
+          x=Math.min(mx,Math.max(-mx,x)); y=Math.min(my,Math.max(-my,y));
+        }
+        function paint(){
+          clamp();
+          im.style.width=W+'px'; im.style.height=H+'px';
+          im.style.transform='translate(-50%,-50%) translate('+x+'px,'+y+'px) scale('+(base*zoom)+')';
+          zoomEl.value=zoom;
+        }
+        function setZoom(z){ zoom=Math.min(4,Math.max(1,z)); paint(); }
+        paint();
+        requestAnimationFrame(function(){ov.classList.add('show');ov.querySelector('.crop-ok').focus({preventScroll:true});});
+
+        // Arrastre y pellizco con Pointer Events (un dedo mueve, dos dedos acercan)
+        const ptrs=new Map(); let last=null, pinch0=0, zoom0=1;
+        stage.addEventListener('pointerdown',function(e){
+          try{stage.setPointerCapture(e.pointerId);}catch(err){}   // sin captura igual se puede arrastrar
+          ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+          if(ptrs.size===2){const p=Array.from(ptrs.values());pinch0=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);zoom0=zoom;}
+          last={x:e.clientX,y:e.clientY};
+        });
+        stage.addEventListener('pointermove',function(e){
+          if(!ptrs.has(e.pointerId))return;
+          ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+          if(ptrs.size>=2){
+            const p=Array.from(ptrs.values()), d=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);
+            if(pinch0)setZoom(zoom0*d/pinch0);
+          }else if(last){
+            x+=e.clientX-last.x; y+=e.clientY-last.y; last={x:e.clientX,y:e.clientY}; paint();
+          }
+        });
+        function up(e){ptrs.delete(e.pointerId); last=null; if(ptrs.size<2)pinch0=0;
+          if(ptrs.size===1){const p=ptrs.values().next().value;last={x:p.x,y:p.y};}}
+        stage.addEventListener('pointerup',up); stage.addEventListener('pointercancel',up);
+        stage.addEventListener('wheel',function(e){e.preventDefault();setZoom(zoom*(e.deltaY<0?1.08:1/1.08));},{passive:false});
+        zoomEl.addEventListener('input',function(){setZoom(parseFloat(zoomEl.value)||1);});
+
+        function cerrar(result){
+          ov.classList.remove('show');
+          setTimeout(function(){ov.remove();URL.revokeObjectURL(url);},220);
+          if(prevFocus&&prevFocus.focus)prevFocus.focus({preventScroll:true});
+          resolve(result);
+        }
+        ov.querySelector('.crop-cancel').onclick=function(){cerrar(null);};
+        ov.addEventListener('keydown',function(e){
+          if(e.key==='Escape'){e.stopPropagation();cerrar(null);}
+          else if(e.key==='Tab'){ // el foco no sale del editor
+            const f=Array.from(ov.querySelectorAll('input,button')), i=f.indexOf(document.activeElement);
+            e.preventDefault(); f[(i+(e.shiftKey?-1:1)+f.length)%f.length].focus();
+          }
+        });
+        ov.querySelector('.crop-ok').onclick=function(){
+          // Lo que está dentro del círculo, en píxeles de la foto original
+          const sc=base*zoom, lado=D/sc, cx=W/2-x/sc, cy=H/2-y/sc;
+          const c=document.createElement('canvas'); c.width=c.height=OUT;
+          const ctx=c.getContext('2d'); ctx.imageSmoothingQuality='high';
+          ctx.drawImage(im,cx-lado/2,cy-lado/2,lado,lado,0,0,OUT,OUT);
+          cerrar(c.toDataURL('image/jpeg',.88));
+        };
+      };
+      im.src=url;
+    });
+  }
+  (function wireProfile(){
+    const file=document.getElementById('accAvatarFile');
+    const av=document.getElementById('accAvatar'), menu=document.getElementById('accAvMenu');
+    function elegirFoto(){menuFoto(false);file.value='';file.click();}
+    // Tocar la foto: sin foto abre el selector; con foto, menú Cambiar / Quitar
+    function menuFoto(on){
+      menu.hidden=!on; av.setAttribute('aria-expanded',on?'true':'false');
+      if(on)document.getElementById('accPhotoChange').focus({preventScroll:true});
+    }
+    av.addEventListener('click',function(){ if(av.dataset.foto)menuFoto(menu.hidden); else elegirFoto(); });
+    document.getElementById('accPhotoChange').addEventListener('click',elegirFoto);
+    document.addEventListener('pointerdown',function(e){ if(!menu.hidden&&!menu.contains(e.target)&&!av.contains(e.target))menuFoto(false); },true);
+    menu.addEventListener('keydown',function(e){ if(e.key==='Escape'){e.stopPropagation();menuFoto(false);av.focus();} });
+    window.addEventListener('online',function(){ if(profUser)sincronizarFoto(); });   // sube/borra lo pendiente al volver la red
+    file.addEventListener('change',async function(){
+      const f=file.files&&file.files[0]; if(!f)return;
+      if(!/^image\//.test(f.type)){msgCampo('accNickMsg','Elige una imagen.','err');return;}
+      try{
+        const data=await editarFoto(f);
+        if(!data)return;                                 // canceló
+        await perfilListo();
+        if(!guardaFotoCache({url:null,data:data,pend:'up'}))throw new Error('No hay espacio para guardar la foto.');
+        paintProfile(); msgCampo('accNickMsg','');
+        if(window.Haptic&&Haptic.success)Haptic.success();
+        sincronizarFoto();
+      }catch(e){msgCampo('accNickMsg',e.message||'No se pudo usar esa imagen.','err');}
+    });
+    document.getElementById('accAvatarRemove').addEventListener('click',async function(){
+      menuFoto(false); await perfilListo();
+      const c=fotoCache();
+      // Si nunca llegó a subirse basta con olvidarla; si ya está en el servidor, queda pendiente de borrar
+      guardaFotoCache(c.pend==='up'&&!(profUser.user_metadata&&profUser.user_metadata.avatar_url)?null:{pend:'del'});
+      paintProfile(); av.focus({preventScroll:true});
+      sincronizarFoto();
+    });
+
+    const row=document.getElementById('accNickRow'), form=document.getElementById('accNickForm'), inp=document.getElementById('accNickInput');
+    function editar(on){
+      row.hidden=on; form.hidden=!on; msgCampo('accNickMsg','');
+      if(on){inp.value=nickActual();inp.focus();inp.select();}
+    }
+    document.getElementById('accNickEdit').addEventListener('click',function(){editar(true);});
+    inp.addEventListener('keydown',function(e){if(e.key==='Escape'){e.stopPropagation();editar(false);document.getElementById('accNickEdit').focus();}});
+    // Tocar fuera del campo cancela la edición (no guarda)
+    document.addEventListener('pointerdown',function(e){ if(!form.hidden&&!form.contains(e.target))editar(false); },true);
+    form.addEventListener('submit',async function(e){
+      e.preventDefault();
+      const nick=inp.value.replace(/\s+/g,' ').trim().slice(0,30);
+      await perfilListo();
+      if(!profUser){msgCampo('accNickMsg','No se pudo leer tu sesión. Cierra y vuelve a abrir Ajustes.','err');return;}
+      lsSet(nickKey(),nick||null);            // se ve al instante, también sin conexión
+      profUser.user_metadata=Object.assign({},profUser.user_metadata,{nickname:nick});
+      editar(false); paintProfile();
+      if(sinRed()){msgCampo('accNickMsg','Guardado en este teléfono; se sincroniza cuando vuelvas a conectarte y lo guardes otra vez.','ok');return;}
+      try{
+        const r=await sb.auth.updateUser({data:{nickname:nick}});
+        if(r.error)throw r.error;
+        if(window.Haptic&&Haptic.success)Haptic.success();
+      }catch(err){msgCampo('accNickMsg','Se guardó en este teléfono, pero no se pudo sincronizar: '+errCuenta(err),'err');}
+    });
+  })();
+
   /* Traduce los mensajes de Supabase, que llegan en inglés y sin contexto. */
   function errCuenta(e){
     const m=String((e&&e.message)||e||'');
@@ -589,26 +825,6 @@
     this.disabled=false; this.textContent=t;
   });
 
-  document.getElementById('accEmailBtn').addEventListener('click',async function(){
-    const inp=document.getElementById('accNewEmail'), em=inp.value.trim();
-    if(!/^\S+@\S+\.\S+$/.test(em)){msgCampo('accEmailMsg','Escribe un correo válido.','err');return;}
-    const actual=(document.getElementById('accEmail').textContent||'').trim().toLowerCase();
-    if(em.toLowerCase()===actual){msgCampo('accEmailMsg','Ese ya es tu correo actual.','err');return;}
-    if(sinRed()){msgCampo('accEmailMsg','Sin conexión: no se puede cambiar el correo ahora.','err');return;}
-    this.disabled=true; const t=this.textContent; this.textContent='Enviando…';
-    msgCampo('accEmailMsg','');
-    try{
-      const r=await sb.auth.updateUser({email:em});
-      if(r.error)throw r.error;
-      inp.value='';
-      msgCampo('accEmailMsg','Te enviamos un correo a '+em+'. Ábrelo para confirmar; hasta entonces sigues entrando con el anterior.','ok');
-      if(window.Haptic&&Haptic.success)Haptic.success();
-    }catch(e){
-      msgCampo('accEmailMsg',errCuenta(e),'err');
-      if(window.Haptic&&Haptic.error)Haptic.error();
-    }
-    this.disabled=false; this.textContent=t;
-  });
   document.getElementById('accLogout').addEventListener('click',function(){
     closeAjustes();
     if(window.logout)window.logout();

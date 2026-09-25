@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>Control. F — Nueva contraseña</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#0a0e1a; --surface:#121a2e; --surface2:#0d1426; --line:rgba(255,255,255,.08);
+      --txt:#eef2ff; --muted:#8a97b8; --faint:#5b678a; --neg:#F87171;
+      --primary:#4F46E5; --primary2:#6366F1; --savings:#0EA5E9; --income:#10B981;
+      --sans:'Inter',system-ui,sans-serif; --display:'Space Grotesk','Inter',sans-serif;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;height:100%}
+    body{
+      font-family:var(--sans); color:var(--txt);
+      background:
+        radial-gradient(900px 500px at 110% -10%, rgba(99,102,241,.16), transparent 55%),
+        radial-gradient(900px 500px at -10% 10%, rgba(14,165,233,.12), transparent 55%),
+        var(--bg);
+      display:flex; align-items:center; justify-content:center;
+      padding:24px 16px; min-height:100%;
+    }
+    .card{
+      width:100%; max-width:440px; background:var(--surface);
+      border:1px solid var(--line); border-radius:22px; padding:40px 28px;
+      text-align:center; box-shadow:0 30px 70px -30px rgba(0,0,0,.8);
+      animation:rise .5s cubic-bezier(.22,1,.36,1) both;
+    }
+    @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+    .mark{
+      width:64px; height:64px; border-radius:18px; margin:0 auto 22px;
+      background:linear-gradient(135deg,var(--primary2),var(--savings));
+      display:flex; align-items:center; justify-content:center;
+      box-shadow:0 14px 34px -10px rgba(99,102,241,.6);
+    }
+    .mark svg{width:32px;height:32px;stroke:#fff;stroke-width:2.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+    .brand{font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.3px;color:var(--muted);margin-bottom:18px}
+    .brand b{color:var(--txt)}
+    .tag{font-size:11px;font-weight:700;letter-spacing:1px;background:linear-gradient(135deg,var(--primary),var(--primary2));color:#fff;padding:2px 7px;border-radius:6px;margin-left:4px}
+    h1{font-family:var(--display);font-size:25px;margin:0 0 12px}
+    p{color:var(--muted);font-size:15px;line-height:1.65;margin:0 auto;max-width:330px}
+    .hint{margin-top:24px;color:var(--faint);font-size:12.5px}
+    .view{display:none}
+    .view.on{display:block}
+    .err-ico{background:linear-gradient(135deg,#F43F5E,#F97316)!important;box-shadow:0 14px 34px -10px rgba(244,63,94,.6)!important}
+    .ok-ico{background:linear-gradient(135deg,var(--income),var(--savings))!important}
+    form{margin-top:24px;text-align:left}
+    label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 7px}
+    .pw{position:relative}
+    input{width:100%;background:var(--surface2);border:1px solid var(--line);color:var(--txt);border-radius:12px;
+      padding:13px 46px 13px 14px;font:inherit;font-size:16px}
+    input:focus{outline:0;border-color:var(--primary2)}
+    .eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;border:0;border-radius:9px;
+      background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer}
+    .eye svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round}
+    button.go{width:100%;margin-top:22px;border:0;border-radius:14px;padding:14px;font:inherit;font-weight:600;font-size:15px;cursor:pointer;
+      color:#fff;background:linear-gradient(135deg,var(--primary),var(--primary2));transition:transform .12s ease,opacity .2s ease}
+    button.go:active{transform:scale(.97)}
+    button.go:disabled{opacity:.6;cursor:default}
+    #msg{min-height:20px;margin-top:14px;font-size:13.5px;color:var(--neg);text-align:center}
+  </style>
+</head>
+<body>
+<main class="card">
+  <!-- Comprobando el enlace -->
+  <div id="vLoad" class="view on">
+    <div class="brand"><b>Control. F</b><span class="tag">MS</span></div>
+    <p>Comprobando el enlace…</p>
+  </div>
+
+  <!-- Formulario de contraseña nueva -->
+  <div id="vForm" class="view">
+    <div class="mark"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>
+    <div class="brand"><b>Control. F</b><span class="tag">MS</span></div>
+    <h1>Nueva contraseña</h1>
+    <p>Elige una contraseña de al menos 6 caracteres para <b id="who" style="color:var(--txt)">tu cuenta</b>.</p>
+    <form id="f" novalidate>
+      <label for="p1">Nueva contraseña</label>
+      <div class="pw">
+        <input type="password" id="p1" autocomplete="new-password" minlength="6" required>
+        <button type="button" class="eye" data-for="p1" aria-label="Mostrar contraseña"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      </div>
+      <label for="p2">Repite la contraseña</label>
+      <div class="pw">
+        <input type="password" id="p2" autocomplete="new-password" minlength="6" required>
+        <button type="button" class="eye" data-for="p2" aria-label="Mostrar contraseña"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      </div>
+      <button type="submit" class="go" id="save">Guardar contraseña</button>
+      <div id="msg" role="alert"></div>
+    </form>
+  </div>
+
+  <!-- Listo -->
+  <div id="vOk" class="view">
+    <div class="mark ok-ico"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
+    <div class="brand"><b>Control. F</b><span class="tag">MS</span></div>
+    <h1>¡Contraseña actualizada!</h1>
+    <p>Ya puedes <b style="color:var(--txt)">volver a la aplicación</b> e iniciar sesión con tu nueva contraseña.</p>
+    <div class="hint">Puedes cerrar esta ventana.</div>
+  </div>
+
+  <!-- Enlace vencido o inválido -->
+  <div id="vErr" class="view">
+    <div class="mark err-ico"><svg viewBox="0 0 24 24"><path d="M12 8v5"/><path d="M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg></div>
+    <div class="brand"><b>Control. F</b><span class="tag">MS</span></div>
+    <h1>El enlace no es válido</h1>
+    <p>Es posible que haya vencido o que ya se haya usado. Abre la aplicación y pulsa <b style="color:var(--txt)">«¿Olvidaste tu contraseña?»</b> para recibir uno nuevo.</p>
+    <div class="hint">Puedes cerrar esta ventana.</div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+/* Página a la que lleva el correo de "¿Olvidaste tu contraseña?" cuando se pide desde el APK.
+   Supabase añade a la URL un token de recuperación (#access_token=…&type=recovery); el cliente
+   lo lee al iniciar y abre una sesión temporal con la que se puede fijar la contraseña nueva. */
+(function(){
+  var SUPABASE_URL = 'https://jjluniqevodygaojmhqn.supabase.co';
+  var SUPABASE_KEY = 'sb_publishable__VD9Q4rWFEt7fhIj2hw9SA_9n1hv02m';
+  function show(id){ document.querySelectorAll('.view').forEach(function(v){ v.classList.toggle('on', v.id===id); }); }
+
+  var enUrl = location.hash + '&' + location.search;
+  if (/error/i.test(enUrl) || !window.supabase){ show('vErr'); return; }
+
+  // Sin guardar la sesión en este navegador: solo sirve para cambiar la contraseña
+  var sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth:{ persistSession:false, detectSessionInUrl:true } });
+
+  sb.auth.getSession().then(function(r){
+    var s = r && r.data && r.data.session;
+    try{ history.replaceState(null, '', location.pathname); }catch(e){}   // quita el token de la barra de direcciones
+    if (!s){ show('vErr'); return; }
+    if (s.user && s.user.email) document.getElementById('who').textContent = s.user.email;
+    show('vForm');
+    document.getElementById('p1').focus();
+  }, function(){ show('vErr'); });
+
+  document.querySelectorAll('.eye').forEach(function(b){
+    b.addEventListener('click', function(){
+      var i = document.getElementById(b.dataset.for), ver = i.type === 'password';
+      i.type = ver ? 'text' : 'password';
+      b.setAttribute('aria-label', ver ? 'Ocultar contraseña' : 'Mostrar contraseña');
+    });
+  });
+
+  function traducir(m){
+    if (/different from the old|same.*password/i.test(m)) return 'La nueva contraseña debe ser distinta a la anterior.';
+    if (/at least 6|should be at least/i.test(m)) return 'La contraseña debe tener al menos 6 caracteres.';
+    if (/session|expired|jwt/i.test(m)) return 'El enlace venció. Pide uno nuevo desde la app.';
+    return m;
+  }
+
+  document.getElementById('f').addEventListener('submit', function(e){
+    e.preventDefault();
+    var msg = document.getElementById('msg'), btn = document.getElementById('save');
+    var p1 = document.getElementById('p1').value, p2 = document.getElementById('p2').value;
+    if (p1.length < 6){ msg.textContent = 'La contraseña debe tener al menos 6 caracteres.'; return; }
+    if (p1 !== p2){ msg.textContent = 'Las contraseñas no coinciden.'; return; }
+    btn.disabled = true; btn.textContent = 'Guardando…'; msg.textContent = '';
+    sb.auth.updateUser({ password:p1 }).then(function(r){
+      btn.disabled = false; btn.textContent = 'Guardar contraseña';
+      if (r.error){ msg.textContent = traducir(r.error.message); return; }
+      sb.auth.signOut({ scope:'local' }).catch(function(){});
+      show('vOk');
+    }, function(){
+      btn.disabled = false; btn.textContent = 'Guardar contraseña';
+      msg.textContent = 'No se pudo guardar. Revisa tu conexión e inténtalo de nuevo.';
+    });
+  });
+})();
+</script>
+</body>
+</html>
