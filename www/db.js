@@ -619,7 +619,7 @@ const FIRST_PAINT_MS = 3500;
 const API = {
   async getInitialData(){
     if (DEMO_){
-      await loadLib_('demo.js?v=3');
+      await loadLib_('demo.js?v=4');
       return Object.assign({}, window.DEMO_DATA, { palettes:PALETTE_BY_TYPE });
     }
     // Si NO hay internet, ni intentes el servidor: usa la copia local de una vez.

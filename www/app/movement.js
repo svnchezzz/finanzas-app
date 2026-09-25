@@ -114,9 +114,7 @@ function aplicarGastoDesdeMeta_(t){
 }
 function aplicarMetaAhorro_(metaSel, metaNewName, metaNewTarget, amount){
   if(!metaSel) return;
-  if(window.isOffline && window.isOffline()){
-    toast('El ahorro se guardó. Asignarlo a una meta requiere conexión.','info'); return;
-  }
+  // Sin conexión también funciona: addGoal/contributeGoal se guardan en la cola de db.js y se suben al volver
   if(metaSel==='__new__'){
     const g={name:metaNewName, target:metaNewTarget, saved:amount, color:(paletteFor('Savings')[0]||'#8B5CF6'), note:''};
     const temp=Object.assign({id:'tmp-g'+Date.now()},g);
