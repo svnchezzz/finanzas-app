@@ -9,58 +9,67 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
   <style>
+    /* Misma paleta que la app (www/styles.css): claro por defecto y oscuro si el teléfono lo usa */
     :root{
-      --bg:#0a0e1a; --surface:#121a2e; --surface2:#0d1426; --line:rgba(255,255,255,.08);
-      --txt:#eef2ff; --muted:#8a97b8; --faint:#5b678a; --neg:#F87171;
-      --primary:#4F46E5; --primary2:#6366F1; --savings:#0EA5E9; --income:#10B981;
+      --bg:#F7F7F5; --surface:#FFFFFF; --surface2:#F1F1EF; --line:#E7E7E4;
+      --txt:#0A0A0A; --muted:#5C5C5C; --faint:#6B6B68;
+      --accent:#0A0A0A; --on-accent:#FFFFFF; --pos:#0E8A4A; --neg:#C93B3B;
+      --shadow:0 16px 48px rgba(0,0,0,.08);
       --sans:'Inter',system-ui,sans-serif; --display:'Space Grotesk','Inter',sans-serif;
+      color-scheme:light;
+    }
+    @media (prefers-color-scheme:dark){
+      :root{
+        --bg:#0A0A0A; --surface:#161616; --surface2:#212121; --line:#262626;
+        --txt:#F5F5F3; --muted:#A3A3A0; --faint:#8A8A85;
+        --accent:#F5F5F3; --on-accent:#0A0A0A; --pos:#37C97C; --neg:#F26D6D;
+        --shadow:0 16px 48px rgba(0,0,0,.55);
+        color-scheme:dark;
+      }
     }
     *{box-sizing:border-box}
     html,body{margin:0;height:100%}
     body{
       font-family:var(--sans); color:var(--txt);
-      background:
-        radial-gradient(900px 500px at 110% -10%, rgba(99,102,241,.16), transparent 55%),
-        radial-gradient(900px 500px at -10% 10%, rgba(14,165,233,.12), transparent 55%),
-        var(--bg);
+      background:var(--bg);
       display:flex; align-items:center; justify-content:center;
       padding:24px 16px; min-height:100%;
     }
     .card{
       width:100%; max-width:440px; background:var(--surface);
       border:1px solid var(--line); border-radius:22px; padding:40px 28px;
-      text-align:center; box-shadow:0 30px 70px -30px rgba(0,0,0,.8);
+      text-align:center; box-shadow:var(--shadow);
       animation:rise .5s cubic-bezier(.22,1,.36,1) both;
     }
     @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
     .mark{
       width:64px; height:64px; border-radius:18px; margin:0 auto 22px;
-      background:linear-gradient(135deg,var(--primary2),var(--savings));
+      background:var(--accent);
       display:flex; align-items:center; justify-content:center;
-      box-shadow:0 14px 34px -10px rgba(99,102,241,.6);
     }
-    .mark svg{width:32px;height:32px;stroke:#fff;stroke-width:2.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+    .mark svg{width:32px;height:32px;stroke:var(--on-accent);stroke-width:2.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
     .brand{font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.3px;color:var(--muted);margin-bottom:18px}
     .brand b{color:var(--txt)}
-    .tag{font-size:11px;font-weight:700;letter-spacing:1px;background:linear-gradient(135deg,var(--primary),var(--primary2));color:#fff;padding:2px 7px;border-radius:6px;margin-left:4px}
+    .tag{font-size:11px;font-weight:700;letter-spacing:1px;background:var(--accent);color:var(--on-accent);padding:2px 7px;border-radius:6px;margin-left:4px}
     h1{font-family:var(--display);font-size:25px;margin:0 0 12px}
     p{color:var(--muted);font-size:15px;line-height:1.65;margin:0 auto;max-width:330px}
     .hint{margin-top:24px;color:var(--faint);font-size:12.5px}
     .view{display:none}
     .view.on{display:block}
-    .err-ico{background:linear-gradient(135deg,#F43F5E,#F97316)!important;box-shadow:0 14px 34px -10px rgba(244,63,94,.6)!important}
-    .ok-ico{background:linear-gradient(135deg,var(--income),var(--savings))!important}
+    .err-ico{background:var(--neg)!important}
+    .ok-ico{background:var(--pos)!important}
+    .ok-ico svg,.err-ico svg{stroke:#fff}
     form{margin-top:24px;text-align:left}
     label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 7px}
     .pw{position:relative}
     input{width:100%;background:var(--surface2);border:1px solid var(--line);color:var(--txt);border-radius:12px;
       padding:13px 46px 13px 14px;font:inherit;font-size:16px}
-    input:focus{outline:0;border-color:var(--primary2)}
+    input:focus{outline:0;border-color:var(--txt)}
     .eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;border:0;border-radius:9px;
       background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer}
     .eye svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round}
     button.go{width:100%;margin-top:22px;border:0;border-radius:14px;padding:14px;font:inherit;font-weight:600;font-size:15px;cursor:pointer;
-      color:#fff;background:linear-gradient(135deg,var(--primary),var(--primary2));transition:transform .12s ease,opacity .2s ease}
+      color:var(--on-accent);background:var(--accent);transition:transform .12s ease,opacity .2s ease}
     button.go:active{transform:scale(.97)}
     button.go:disabled{opacity:.6;cursor:default}
     #msg{min-height:20px;margin-top:14px;font-size:13.5px;color:var(--neg);text-align:center}
