@@ -600,6 +600,7 @@
   function perfilListo(){ return profUser ? Promise.resolve() : (profReady||loadEmail()); }
   async function leerPerfil(){
     const elSt=document.getElementById('accStatus');
+    if(window.DEMO_PROFILE){ profUser=window.DEMO_PROFILE; paintProfile(); if(elSt)elSt.textContent='Sesión iniciada · datos sincronizados'; return; }
     try{
       const r=await sb.auth.getSession();
       profUser=r&&r.data&&r.data.session?r.data.session.user:null;

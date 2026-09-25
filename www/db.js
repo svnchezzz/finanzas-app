@@ -33,6 +33,12 @@ const SIM_OFF_ = (function(){
     return localStorage.getItem('cf_sim_offline') || '';
   }catch(e){ return ''; }
 })();
+/* Modo demo (?demo=1, solo en local): datos de ejemplo de demo.js, sin Supabase, sin tocar la copia
+   local ni la cola del usuario real, y sin avisos de conexión. Para grabar videos o presentar la app. */
+const DEMO_ = (function(){
+  try{ return /^(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)$/.test(location.hostname) && /[?&]demo=1\b/.test(location.search); }
+  catch(e){ return false; }
+})();
 function timeoutFetch_(input, init){
   const url = (typeof input==='string') ? input : (input && input.url) || '';
   if (SIM_OFF_) return SIM_OFF_==='wifi'
@@ -164,7 +170,7 @@ function uuid_(){
 let _netDown=false;          // true = el servidor no responde (sin internet REAL, aunque el WiFi esté encendido)
 
 // "Sin conexión" = sin interfaz de red  O  el servidor no responde (internet real caído)
-function isOffline_(){ return SIM_OFF_==='avion' || (typeof navigator!=='undefined' && navigator.onLine===false) || _netDown; }
+function isOffline_(){ return DEMO_ || SIM_OFF_==='avion' || (typeof navigator!=='undefined' && navigator.onLine===false) || _netDown; }
 function isNetErr_(e){
   if (typeof navigator!=='undefined' && navigator.onLine===false) return true;
   const m = ((e && (e.message||e.msg)) || '') + '';
@@ -218,8 +224,8 @@ async function recheckNet_(){
 
 /* Bandeja de salida (cola de cambios pendientes de subir) */
 function qKey_(){ return 'cf_outbox_' + (CURRENT_USER_ID || 'anon'); }
-function loadQueue_(){ try{ return JSON.parse(localStorage.getItem(qKey_())||'[]'); }catch(e){ return []; } }
-function saveQueue_(q){ try{ localStorage.setItem(qKey_(), JSON.stringify(q)); }catch(e){} }
+function loadQueue_(){ if (DEMO_) return []; try{ return JSON.parse(localStorage.getItem(qKey_())||'[]'); }catch(e){ return []; } }
+function saveQueue_(q){ if (DEMO_) return; try{ localStorage.setItem(qKey_(), JSON.stringify(q)); }catch(e){} }
 function enqueue_(item){ const q=loadQueue_(); q.push(item); saveQueue_(q); updateBar_(); }
 function enqueueDelete_(cid){
   let q=loadQueue_();
@@ -256,6 +262,7 @@ function aCola_(e){ return e===undefined ? isOffline_() : isRetriable_(e); }
 /* Copia local de tus datos (para abrir la app sin internet) */
 function cacheKey_(){ return 'cf_cache_' + (CURRENT_USER_ID || 'anon'); }
 function saveSnapshotData_(data){
+  if (DEMO_) return;
   try{
     const blob = JSON.stringify({ at:Date.now(), uid:CURRENT_USER_ID, data:data });
     localStorage.setItem(cacheKey_(), blob);
@@ -504,7 +511,7 @@ function offlineText_(n){
 }
 /* Muestra el aviso de sin conexión unos segundos y luego lo oculta solo */
 function flashOffline_(){
-  if(_offlineNotified) return;          // ya se avisó en este corte de internet
+  if(DEMO_ || _offlineNotified) return;          // ya se avisó en este corte de internet
   _offlineNotified=true;
   ensureBar_();
   const bar=document.getElementById('offline-bar'); if(!bar) return;
@@ -513,6 +520,7 @@ function flashOffline_(){
   _barHideT=setTimeout(function(){ bar.classList.remove('show'); }, OFFLINE_MS);
 }
 function updateBar_(){
+  if (DEMO_) return;
   ensureBar_();
   const bar=document.getElementById('offline-bar'); if(!bar) return;
   const n=loadQueue_().length;
@@ -610,6 +618,10 @@ const FIRST_PAINT_MS = 3500;
 
 const API = {
   async getInitialData(){
+    if (DEMO_){
+      await loadLib_('demo.js?v=3');
+      return Object.assign({}, window.DEMO_DATA, { palettes:PALETTE_BY_TYPE });
+    }
     // Si NO hay internet, ni intentes el servidor: usa la copia local de una vez.
     if (isOffline_()){
       const snapOff = loadSnapshot_();
@@ -1355,7 +1367,7 @@ async function startApp_(){
   appStarted_ = true;
   // Usuario: el de la sesión guardada en el teléfono (sin red). Solo se le pregunta a Supabase
   // un instante; sin internet puede tardar mucho intentando renovar el token.
-  let uid = storedUserId_();
+  let uid = DEMO_ ? 'demo' : storedUserId_();
   if (!uid){
     try{
       const r = await Promise.race([ sb.auth.getSession(), new Promise(function(ok){ setTimeout(function(){ ok(null); }, 1500); }) ]);
@@ -1363,11 +1375,11 @@ async function startApp_(){
     }catch(e){ uid = null; }
   }
   CURRENT_USER_ID = uid;
-  try{ if (uid) localStorage.setItem('cf_last_uid', uid); }catch(e){}
+  try{ if (uid && !DEMO_) localStorage.setItem('cf_last_uid', uid); }catch(e){}
   // Cambios que quedaron en una cola sin dueño (versiones anteriores, al no saber aún el usuario): se recuperan
   try{
     const anon = JSON.parse(localStorage.getItem('cf_outbox_anon') || '[]');
-    if (uid && anon.length){ saveQueue_(loadQueue_().concat(anon)); localStorage.removeItem('cf_outbox_anon'); }
+    if (uid && !DEMO_ && anon.length){ saveQueue_(loadQueue_().concat(anon)); localStorage.removeItem('cf_outbox_anon'); }
   }catch(e){}
 
   // Si se entra desde el login, este se queda ("Entrando…") hasta que la app está lista y luego se
@@ -1429,6 +1441,8 @@ window.logout = async function(){
 /* ═══════════════ Arranque ═══════════════ */
 document.addEventListener('DOMContentLoaded', async ()=>{
   injectLogin_();
+
+  if (DEMO_){ startApp_(); return; }   // modo demo: sin login
 
   // Recién se cerró sesión: no hay sesión que esperar, se muestra el login al instante
   if (window.__afterLogout){
