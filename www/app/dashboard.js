@@ -124,7 +124,9 @@ function animateMoney(el,from,to){
   if(!el)return;
   if(Math.round(from)===Math.round(to)){writeMoney(el,to);return;}
   const dur=800,t0=performance.now();
-  function step(now){const p=Math.min((now-t0)/dur,1),e=1-Math.pow(1-p,3);writeMoney(el,from+(to-from)*e);if(p<1)requestAnimationFrame(step);}
+  // max(0,…): el primer cuadro puede traer una marca de tiempo anterior a t0; sin esto el avance sale
+  // negativo y la curva dispara la cifra a valores absurdos (y nunca termina).
+  function step(now){const p=Math.max(0,Math.min((now-t0)/dur,1)),e=1-Math.pow(1-p,3);writeMoney(el,from+(to-from)*e);if(p<1)requestAnimationFrame(step);}
   requestAnimationFrame(step);
 }
 /* Animación de entrada de las gráficas: 100% GPU (opacity + transform), escalonada. Fluida. */
