@@ -24,7 +24,8 @@ function wireUI(){
   document.getElementById('cancelBtn').onclick=closeModal;
   document.getElementById('modalBackdrop').addEventListener('click',function(e){if(e.target.id==='modalBackdrop')closeModal();});
   document.getElementById('saveBtn').onclick=saveTx;
-  document.getElementById('amountInput').addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);});
+  document.getElementById('amountInput').addEventListener('input',function(e){e.target.value=groupDigits(e.target.value);updateBudHint_();});
+  document.getElementById('amtSugs').addEventListener('click',function(e){const b=e.target.closest('.amt-sug');if(!b)return;const i=document.getElementById('amountInput');i.value=groupDigits(b.dataset.v);if(window.Haptic)Haptic.light();updateBudHint_();});
   document.getElementById('sourceSeg').addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;setSeg('sourceSeg',b);S.modal.source=b.dataset.source;
     document.getElementById('sourceHint').textContent=b.dataset.source==='Salary'?'Se descuenta de tu disponible actual.':'Es un nuevo ingreso (no afecta tu disponible actual).';});
   document.getElementById('fromSavings').addEventListener('change',function(){setupExpGoalRow_();});
@@ -50,7 +51,7 @@ function wireUI(){
   document.getElementById('exportBackdrop').addEventListener('click',function(e){if(e.target.id==='exportBackdrop')closeExport();});
   document.getElementById('scopeSeg').addEventListener('click',function(e){const b=e.target.closest('button');if(!b)return;setSeg('scopeSeg',b);S.exportScope=b.dataset.scope;
     document.getElementById('rangeRow').classList.toggle('show',b.dataset.scope==='range');
-    const h={current:'Exporta el periodo que ves ahora en el panel.',range:'Elige las fechas de inicio y fin.',all:'Exporta absolutamente todos los movimientos.'};
+    const h={current:'Exporta '+periodLabel(S.ref,S.period)+', lo que ves ahora en el panel.',range:'Elige las fechas de inicio y fin.',all:'Exporta absolutamente todos los movimientos.'};
     document.getElementById('scopeHint').textContent=h[b.dataset.scope];});
   document.getElementById('btnXlsx').onclick=function(){runExport('excel',this);};
   document.getElementById('btnPdf').onclick=function(){runExport('pdf',this);};
@@ -158,8 +159,7 @@ function setupAutoHideBars(){
   let lastY=scrollPos(), ticking=false;
   function apply(hide){
     appbar.classList.toggle('bars-hidden',hide);
-    if(bottomNav)bottomNav.classList.toggle('bars-hidden',hide);
-    document.body.classList.toggle('bars-hidden',hide); // para que el aviso sin conexión siga al menú
+    // La barra inferior queda siempre visible: es la navegación (tab-bars.md)
   }
   function onScroll(){
     ticking=false;
@@ -181,9 +181,11 @@ function moveSegInk(seg){
   const btn=seg.querySelector('button.active'); if(!btn||!btn.offsetWidth)return;
   let ink=seg.querySelector('.seg-ink');
   if(!ink){ink=document.createElement('span');ink.className='seg-ink';seg.appendChild(ink);}
-  // Posición y tamaño solo con transform (compositado por GPU) → desliza fluido.
-  // El ancho base del .seg-ink es 100px; lo escalamos al ancho real del botón.
-  ink.style.transform='translateX('+btn.offsetLeft+'px) scaleX('+(btn.offsetWidth/100)+')';
+  // Se mueve con transform y toma el ancho y alto REALES del botón: escalarlo
+  // (scaleX) deformaba las esquinas redondeadas y adelgazaba los bordes laterales.
+  ink.style.width=btn.offsetWidth+'px';
+  ink.style.top=btn.offsetTop+'px'; ink.style.height=btn.offsetHeight+'px';
+  ink.style.transform='translateX('+btn.offsetLeft+'px)';
   seg.classList.add('ink-ready');
 }
 function positionAllSegInks(){document.querySelectorAll('.segmented').forEach(function(s){moveSegInk(s);});}
@@ -247,6 +249,7 @@ function switchView(view,btn){
   const cur=document.getElementById('view-'+view);
   if(cur){cur.style.animation='none';void cur.offsetWidth;cur.style.animation='viewEnter .34s var(--ease) both';}
   requestAnimationFrame(positionAllSegInks);
+  if(window.widgetSync)widgetSync();
 }
 /* Cambiar de vista desde la barra inferior, reutilizando la pestaña superior */
 function goToView(view){

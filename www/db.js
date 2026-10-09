@@ -706,6 +706,31 @@ const API = {
     }
   },
 
+  /* Importación en bloque: se sube de a 200; sin conexión (o si se cae a la mitad)
+     lo que falta queda en la cola como altas normales y se sube al volver. */
+  async importTransactions(list){
+    const items = list.map(function(tx){ return { cid:uuid_(), tx:tx }; });
+    const local = function(it){ return { id:it.cid, timestamp:new Date().toISOString(), date:it.tx.date, type:it.tx.type,
+      category:it.tx.category, amount:num_(it.tx.amount), color:it.tx.color||'#64748B', source:it.tx.source||'', note:it.tx.note||'', _goalId:null }; };
+    const encolar = function(rest){ rest.forEach(function(it){ enqueue_({op:'add', client_id:it.cid, payload:it.tx}); }); snapSoon_(); return rest.map(local); };
+    if (isOffline_()) return encolar(items);
+    const out = [];
+    for (let i=0; i<items.length; i+=200){
+      const chunk = items.slice(i, i+200);
+      try{
+        const { data, error } = await netCall_(sb.from('transactions')
+          .upsert(chunk.map(function(it){ return buildTxPayload_(it.cid, it.tx); }), { onConflict:'client_id' }).select(), 30000);
+        if (error) throw error;
+        (data||[]).forEach(function(r){ out.push(mapTx_(r)); });
+      }catch(e){
+        if (isRetriable_(e)) return out.concat(encolar(items.slice(i)));
+        throw e;
+      }
+    }
+    snapSoon_();
+    return out;
+  },
+
   /* ── Categorías (sin conexión: se encolan; su clave es tipo+nombre) ── */
   async addCategory(type, name, color){
     const local = { type, name, color };

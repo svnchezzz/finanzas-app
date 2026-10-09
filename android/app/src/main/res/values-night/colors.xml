@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget de la pantalla de inicio (modo oscuro) -->
+    <color name="fw_bg">#1C1C1E</color>
+    <color name="fw_text">#F5F5F5</color>
+    <color name="fw_secondary">#A0A0A0</color>
+    <color name="fw_green">#34C77B</color>
+    <color name="fw_red">#FF6B6B</color>
+    <color name="fw_accent">#FFFFFF</color>
+    <color name="fw_on_accent">#0A0A0A</color>
+</resources>

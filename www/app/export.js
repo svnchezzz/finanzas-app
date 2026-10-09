@@ -4,6 +4,10 @@
 /* ── Exportación ── */
 function openExport(){
   document.getElementById('exportStatus').textContent='';
+  // El botón nombra lo que se exporta ("Octubre", "Esta semana"…) en vez de "Periodo actual"
+  const cb=document.querySelector('#scopeSeg [data-scope="current"]');
+  if(cb)cb.textContent=capFirst(perTxt().este.replace(/^en /,''));
+  if(S.exportScope==='current')document.getElementById('scopeHint').textContent='Exporta '+periodLabel(S.ref,S.period)+', lo que ves ahora en el panel.';
   // valores por defecto del rango = periodo actual
   const b=periodBounds(S.ref,S.period);
   setDate_('rangeStart',ymd(b.start));

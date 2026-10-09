@@ -20,6 +20,8 @@ function openModal(type,editId){
   S.modal.type=type; S.modal.source=editing?(tx.source||'Salary'):'Salary';
   document.getElementById('modalTitle').textContent=(editing?'Editar ':'Agregar ')+tipoES(type).toLowerCase();
   document.getElementById('saveBtn').textContent=editing?'Guardar cambios':'Guardar';
+  const delB=document.getElementById('txDeleteBtn');
+  if(delB){delB.hidden=!editing;delB.onclick=function(){closeModal();setTimeout(function(){removeTx(editId);},200);};}
   document.getElementById('curSign').textContent=S.settings.currencySymbol;
   document.getElementById('amountInput').value=editing?groupDigits(String(tx.amount)):'';
   document.getElementById('noteInput').value=editing?(tx.note||''):'';
@@ -35,14 +37,16 @@ function openModal(type,editId){
   document.getElementById('sourceHint').textContent=srcVal==='Salary'?'Se descuenta de tu disponible actual.':'Es un nuevo ingreso (no afecta tu disponible actual).';
   setupGoalRow_(type,editing);
   setupExpGoalRow_((editing&&tx&&tx.source==='Savings'&&tx._goalId)?String(tx._goalId):'');
-  buildChips(type); buildSwatches();
+  buildChips(type,editing?null:lastCat_(type)); buildSwatches();
   if(editing){
     S.modal.category=tx.category; S.modal.color=tx.color;
     markChip('chipRow',tx.category); markSwatch('swatchRow',tx.color);
   }else{
     const first=(S.categories[type]||[])[0];
-    S.modal.color=first?first.color:(paletteFor(type)[0]||'#4F46E5'); markSwatch('swatchRow',S.modal.color);
+    const sel=(S.categories[type]||[]).find(function(c){return c.name===S.modal.category;})||first;
+    S.modal.color=sel?sel.color:(paletteFor(type)[0]||'#4F46E5'); markSwatch('swatchRow',S.modal.color);
   }
+  refreshTxHelpers_();
   openBackdrop('modalBackdrop',positionAllSegInks);
   setTimeout(function(){document.getElementById('amountInput').focus({preventScroll:true});},250);
 }
@@ -194,6 +198,7 @@ function setDate_(id,val){
   inp.value=val||'';
   var txt=document.querySelector('.date-field[data-for="'+id+'"] .df-txt');
   if(txt)txt.textContent=fmtFecha_(inp.value);
+  if(id==='dateInput')updateBudHint_();
 }
 function wireDateFields(){
   document.querySelectorAll('.date-field').forEach(function(btn){
@@ -231,16 +236,94 @@ function trackKeyboard(){
   });
 }
 
-function buildChips(type){
-  S.modal.category=chipRow('chipRow',S.categories[type]||[],null,{icons:true,add:true});
+function buildChips(type,selected){
+  const cats=S.categories[type]||[];
+  if(selected&&!cats.some(function(c){return c.name===selected;}))selected=null;
+  S.modal.category=chipRow('chipRow',cats,selected||null,{icons:true,add:true});
+  if(selected){const c=document.querySelector('#chipRow .chip.active');if(c)requestAnimationFrame(function(){try{c.scrollIntoView({inline:'center',block:'nearest'});}catch(_){}});}
 }
-function selectChip(chip){pickChip('chipRow',chip,S.modal,'swatchRow');}
+/* ── Registro rápido: última categoría usada y montos frecuentes ── */
+function lastCat_(type){try{return (JSON.parse(localStorage.getItem('cf-lastcat')||'{}'))[type]||null;}catch(e){return null;}}
+function rememberCat_(type,name){try{const m=JSON.parse(localStorage.getItem('cf-lastcat')||'{}');m[type]=name;localStorage.setItem('cf-lastcat',JSON.stringify(m));}catch(e){}}
+/* Hasta 3 montos que más usaste en esa categoría (últimos 120 días; empata el más reciente) */
+function frequentAmounts_(type,category){
+  const desde=ymd(new Date(Date.now()-120*864e5)), cnt={};
+  S.transactions.forEach(function(t){
+    if(t.type!==type||t.category!==category||!t.amount||t.date<desde)return;
+    const k=Math.abs(t.amount), c=cnt[k]||(cnt[k]={n:0,last:''});
+    c.n++; if(t.date>c.last)c.last=t.date;
+  });
+  return Object.keys(cnt).sort(function(a,b){return cnt[b].n-cnt[a].n||(cnt[b].last>cnt[a].last?1:-1);}).slice(0,3).map(Number);
+}
+function renderAmtSugs_(){
+  const box=document.getElementById('amtSugs'); if(!box)return;
+  const list=(S.modal.id||!S.modal.category)?[]:frequentAmounts_(S.modal.type,S.modal.category);
+  box.hidden=!list.length;
+  box.innerHTML=list.length?'<span class="amt-sugs-l">Usaste antes</span>'+list.map(function(v){
+    return '<button type="button" class="amt-sug" data-v="'+v+'">'+esc(money(v))+'</button>';}).join(''):'';
+}
+/* ── Presupuesto en vivo dentro de Agregar gasto ──
+   Muestra cuánto queda del presupuesto de la categoría en el mes de la fecha elegida
+   y cómo quedaría con el monto escrito. Funciona también sin notificaciones. */
+function budgetState_(category,dateStr,excludeId){
+  const bg=budgetFor(category); if(bg<=0)return null;
+  const b=periodBounds(parseYMD(dateStr||ymd(new Date())),'month');
+  const spent=allMovements().filter(function(t){return t.type==='Expense'&&t.category===category&&t.id!==excludeId&&inBounds(t,b);})
+    .reduce(function(a,t){return a+t.amount;},0);
+  return {budget:bg,spent:spent,mes:MESES[b.start.getMonth()]};
+}
+function updateBudHint_(){
+  const el=document.getElementById('budHint'); if(!el)return;
+  const st=(S.modal.type==='Expense'&&S.modal.category)?budgetState_(S.modal.category,document.getElementById('dateInput').value,S.modal.id):null;
+  if(!st){el.hidden=true;return;}
+  const amt=parseInt(String(document.getElementById('amountInput').value).replace(/\D/g,''),10)||0;
+  const after=st.spent+amt, pct=Math.round(after/st.budget*100), left=st.budget-after;
+  let txt,cls;
+  if(!amt){
+    const l=st.budget-st.spent;
+    txt=l>=0?('Presupuesto de '+S.modal.category+': te quedan '+money(l)+' de '+money(st.budget)+' en '+st.mes+'.')
+            :('Ya pasaste el presupuesto de '+S.modal.category+' en '+st.mes+' por '+money(-l)+'.');
+    cls=l<0?'bad':(st.spent/st.budget>=0.8?'warn':'');
+  }else if(after>st.budget){
+    txt='Con este gasto te pasarías del presupuesto de '+S.modal.category+' por '+money(-left)+'.'; cls='bad';
+  }else if(pct>=80){
+    txt='Con este gasto llegarías al '+pct+'% del presupuesto de '+S.modal.category+' (te quedarían '+money(left)+').'; cls='warn';
+  }else{
+    txt='Con este gasto usarías el '+pct+'% del presupuesto de '+S.modal.category+' (te quedarían '+money(left)+').'; cls='';
+  }
+  el.hidden=false; el.className='bud-hint'+(cls?' '+cls:''); el.textContent=txt;
+}
+/* Tras guardar: aviso dentro de la app al cruzar el 80% o el 100% (las notificaciones
+   del teléfono solo llegan en la app instalada y con permiso). */
+function budgetCrossToast_(category,before,after){
+  const bg=budgetFor(category); if(bg<=0)return;
+  const r0=before/bg, r1=after/bg;
+  if(r1>=1&&r0<1)setTimeout(function(){toast('Llegaste al 100% del presupuesto de '+category,'err');},700);
+  else if(r1>=0.8&&r0<0.8)setTimeout(function(){toast('Vas en '+Math.round(r1*100)+'% del presupuesto de '+category,'info');},700);
+}
+function refreshTxHelpers_(){renderAmtSugs_();updateBudHint_();}
+function selectChip(chip){pickChip('chipRow',chip,S.modal,'swatchRow');refreshTxHelpers_();}
 function buildSwatches(){document.getElementById('swatchRow').innerHTML=swatchesHtml(paletteFor(S.modal.type)||[]);}
 function markSwatch(id,color){
   let matched=false;
   document.querySelectorAll('#'+id+' .swatch').forEach(function(s){var on=s.dataset.color===color;s.classList.toggle('active',on);s.setAttribute('aria-pressed',on);if(on)matched=true;});
   const cp=document.getElementById(id+'Custom');
-  if(cp){var valid=/^#[0-9a-fA-F]{6}$/.test(color||'');cp.classList.toggle('active',!matched&&valid);if(valid)cp.dataset.color=color;}
+  if(cp){var valid=/^#[0-9a-fA-F]{6}$/.test(color||'');cp.classList.toggle('active',!matched&&valid);if(valid)cp.dataset.color=color;
+    showChosenColor_(cp,(!matched&&valid)?color:'');}
+}
+/* Muestra junto a la rueda el color que se eligió con ella (con su código),
+   para saber de qué color quedará la etiqueta. */
+function showChosenColor_(btn,color){
+  let tag=btn.nextElementSibling;
+  if(!tag||!tag.classList.contains('cp-chosen')){
+    tag=document.createElement('span');tag.className='cp-chosen';tag.hidden=true;
+    tag.innerHTML='<i></i><b></b>';btn.insertAdjacentElement('afterend',tag);
+  }
+  if(!color){tag.hidden=true;return;}
+  tag.hidden=false;
+  tag.querySelector('i').style.background=color;
+  tag.querySelector('b').textContent=color.toUpperCase();
+  tag.setAttribute('aria-label','Color elegido '+color.toUpperCase());
 }
 
 /* ── Rueda de color (círculo cromático) reutilizable ──────────────────────
@@ -390,7 +473,12 @@ function saveTx(){
     if(editId){const prevTx=S.transactions.find(function(t){return t.id===editId;});if(prevTx&&prevTx.type==='Expense'&&prevTx.source!=='Savings')disponible+=prevTx.amount;}
     if(amount>disponible){toast('Saldo insuficiente · disponible '+money(disponible),'err');return;}
   }
+  // Presupuesto antes (con el movimiento original si se edita) y después de guardar
+  const budSt=(tx.type==='Expense')?budgetState_(tx.category,tx.date,null):null;
+  const budAfter=budSt?(budgetState_(tx.category,tx.date,editId).spent+amount):0;
   closeModal();
+  if(!editId)rememberCat_(tx.type,tx.category);
+  if(budSt)budgetCrossToast_(tx.category,budSt.spent,budAfter);
   if(editId){
     const idx=S.transactions.findIndex(function(t){return t.id===editId;});
     if(idx<0)return;
@@ -444,7 +532,7 @@ function removeTx(id){
   const tx=S.transactions.find(function(t){return t.id===id;}); if(!tx)return;
   confirmAction('Eliminar movimiento','Vas a eliminar "'+tx.category+'" por '+money(tx.amount)+'. Esta acción no se puede deshacer.','Eliminar',function(){
     const idx=S.transactions.findIndex(function(t){return t.id===id;}); if(idx<0)return;
-    animateRemove(rowEl('historyList',id,'.hist-row'),function(){
+    animateRemove(rowEl('historyList',id,'.hr-wrap'),function(){
     const removed=S.transactions[idx]; S.transactions.splice(idx,1); renderAll();
     if(window.Notif){ if(tx.type==='Expense')evalBudget(tx.category,true); scheduleDailyReminders(); }
     gs('deleteTransaction',id).then(function(){toast(TXT.eliminado,'ok');const g=goalForTx_(removed);if(g)adjustGoalSaved_(g,-goalDeltaOf_(removed));})

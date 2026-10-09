@@ -294,7 +294,7 @@
   }
 
   /* ── Notificaciones: preferencias guardadas en el teléfono ── */
-  const NT_DEF={daily:true,budget:true,pend:true,goal:true};
+  const NT_DEF={daily:true,budget:true,pend:true,recur:true,goal:true};
   function ntRead(){
     try{return Object.assign({},NT_DEF,JSON.parse(localStorage.getItem('cfms-notif')||'{}'));}
     catch(e){return Object.assign({},NT_DEF);}
@@ -303,7 +303,7 @@
   // app/core.js (ntOn) consulta esto antes de mandar cada aviso
   window.NotifPrefs=function(k){const p=ntRead();return k?!!p[k]:p;};
 
-  const NT_IDS={daily:'ntDaily',budget:'ntBudget',pend:'ntPend',goal:'ntGoal'};
+  const NT_IDS={daily:'ntDaily',budget:'ntBudget',pend:'ntPend',recur:'ntRecur',goal:'ntGoal'};
   let ntPerm='none';                                 // granted | denied | prompt | none
 
   function ntFootTxt(){
@@ -437,6 +437,11 @@
   if(btnExport)btnExport.addEventListener('click',function(){
     closeAjustes();
     setTimeout(function(){ if(typeof window.openExport==='function')window.openExport(); },260);
+  });
+  const btnImport=document.getElementById('spImport');
+  if(btnImport)btnImport.addEventListener('click',function(){
+    closeAjustes();
+    setTimeout(function(){ if(typeof window.openImport==='function')window.openImport(); },260);
   });
   const btnRefresh=document.getElementById('spRefresh');
   const REFRESH_SUB='Vuelve a descargar tus datos';

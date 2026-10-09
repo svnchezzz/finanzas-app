@@ -24,6 +24,19 @@
 
         </activity>
 
+        <!-- Widget de la pantalla de inicio (saldo + botón Agregar) -->
+        <receiver
+            android:name=".FinWidgetProvider"
+            android:label="@string/fw_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/fin_widget_info" />
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

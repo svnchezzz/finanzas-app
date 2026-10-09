@@ -18,13 +18,24 @@ function renderDashboard(){
   countUp('income',inc);countUp('expense',exp);countUp('savings',sav);countUp('balance',bal);
   setSub('income',countOf(list,'Income'));setSub('expense',countOf(list,'Expense'));
   const fs=fromSavingsSum(list);
-  setSub('savings',fs>0?('−'+money(fs)+' desde ahorro este periodo')
-    :(savPer>0?('+'+money(savPer)+' este periodo'):'Total acumulado'));
+  const P=perTxt();
+  setSub('savings',fs>0?('−'+money(fs)+' desde ahorro '+P.este)
+    :(savPer>0?('+'+money(savPer)+' '+P.este):'Total acumulado'));
   renderDeltas(inc,exp,sav);
+  renderMonthSum_();
   setSub('balance',smartLine(exp,savPer));
   ['Expense','Income','Savings'].forEach(renderDonut);
   renderTrend();
   renderPendChart();
+  describeCharts_();
+}
+/* Texto para lectores de pantalla: la tendencia es un <canvas> y no se lee sola */
+function describeCharts_(){
+  const c=document.getElementById('trendChart'), ch=S.charts.trend; if(!c)return;
+  c.setAttribute('role','img');
+  if(!ch){c.setAttribute('aria-label','Tendencia: sin datos');return;}
+  const parts=ch.data.datasets.map(function(ds){return ds.label+' '+money(ds.data.reduce(function(a,b){return a+(+b||0);},0));}).join(', ');
+  c.setAttribute('aria-label','Tendencia. '+(document.getElementById('trendCaption').textContent||'')+'. '+(parts||'sin movimientos'));
 }
 /* Comparativa contra el mismo periodo anterior (día/semana/mes/año) */
 function prevPeriodTx(){
@@ -47,62 +58,121 @@ function setDelta(key,cur,prev,upIsGood){
   if(!el)return;
   if(!prev){ el.textContent=''; el.className='kpi-delta'; return; }
   const pct=Math.round((cur-prev)/Math.abs(prev)*100);
-  if(pct===0){ el.textContent='= igual al periodo anterior'; el.className='kpi-delta flat'; return; }
+  if(pct===0){ el.textContent='= '+perTxt().igual; el.className='kpi-delta flat'; return; }
   const up=pct>0;
   const good=upIsGood?up:!up;
   // Con bases pequeñas el % se dispara a cifras absurdas → mostrar la diferencia en dinero
-  el.textContent=(up?'▲ ':'▼ ')+(Math.abs(pct)>200?money(Math.abs(cur-prev)):(Math.abs(pct)+'%'))+' vs. periodo anterior';
+  el.textContent=(up?'▲ ':'▼ ')+(Math.abs(pct)>200?money(Math.abs(cur-prev)):(Math.abs(pct)+'%'))+' '+perTxt().vs;
   el.className='kpi-delta '+(good?'good':'bad');
+}
+/* ── Resumen del mes que terminó ──
+   Los primeros 10 días de cada mes, el Panel abre con "Así te fue en <mes anterior>":
+   totales y hasta tres frases que comparan con el mes antes de ese. Se cierra con la
+   × y no vuelve a salir para ese mes. */
+const MSUM_KEY='cf-msum-visto';
+function monthTx_(y,m){const b=periodBounds(new Date(y,m,1),'month');return allMovements().filter(function(t){return inBounds(t,b);});}
+function renderMonthSum_(){
+  const box=document.getElementById('monthSum'); if(!box)return;
+  const hoy=new Date(), prev=new Date(hoy.getFullYear(),hoy.getMonth()-1,1);
+  const tag=ymd(prev).slice(0,7);
+  let visto=''; try{visto=localStorage.getItem(MSUM_KEY)||'';}catch(e){}
+  const list=monthTx_(prev.getFullYear(),prev.getMonth());
+  if(hoy.getDate()>10||visto===tag||!list.length){box.hidden=true;return;}
+  const before=monthTx_(prev.getFullYear(),prev.getMonth()-1);
+  const mes=MESES[prev.getMonth()], mesAntes=MESES[(prev.getMonth()+11)%12];
+  const inc=sumType(list,'Income'), exp=sumType(list,'Expense'), sav=savingsNet(list);
+  const pExp=sumType(before,'Expense');
+  const lines=[];
+  if(pExp>0&&exp!==pExp){
+    const pct=Math.round(Math.abs(exp-pExp)/pExp*100), menos=exp<pExp;
+    const cuanto=pct>200?money(Math.abs(exp-pExp)):pct+'%';
+    lines.push({c:menos?'good':'bad',t:'Gastaste '+cuanto+(menos?' menos':' más')+' que en '+mesAntes+'.'});
+  }
+  const cats=breakdown(list,'Expense');
+  if(cats.length&&exp>0)lines.push({c:'',t:'Tu mayor gasto fue '+cats[0].name+': '+money(cats[0].amount)+' ('+Math.round(cats[0].amount/exp*100)+'% de lo que gastaste).'});
+  if(inc>0&&sav>0)lines.push({c:'good',t:'Ahorraste el '+Math.round(sav/inc*100)+'% de lo que ganaste.'});
+  else if(inc>0&&exp>inc)lines.push({c:'bad',t:'Gastaste '+money(exp-inc)+' más de lo que ganaste.'});
+  if(before.length){
+    const pmap={}; breakdown(before,'Expense').forEach(function(c){pmap[c.name]=c.amount;});
+    let up=null; cats.forEach(function(c){const d=c.amount-(pmap[c.name]||0);if(d>0&&(!up||d>up.d))up={n:c.name,d:d};});
+    if(up)lines.push({c:'bad',t:up.n+' fue lo que más subió: '+money(up.d)+' más que en '+mesAntes+'.'});
+  }
+  // Las tres cifras con el mismo tamaño: el de la más larga
+  const len=Math.max(money(inc).length,money(exp).length,money(sav).length);
+  function num(l,v,cls){return '<div class="ms-num '+cls+'"><span>'+l+'</span><b style="--len:'+len+'">'+esc(money(v))+'</b></div>';}
+  box.innerHTML=
+    '<div class="card-head"><h3 id="msTitle">Así te fue en '+mes+'</h3>'+
+      '<button type="button" class="icon-btn ms-close" aria-label="Cerrar el resumen de '+mes+'">'+
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>'+
+    '<div class="ms-nums">'+num('Ingresos',inc,'in')+num('Gastos',exp,'out')+num('Ahorro',sav,'sav')+'</div>'+
+    (lines.length?'<ul class="ms-lines">'+lines.slice(0,3).map(function(l){return '<li class="'+l.c+'">'+esc(l.t)+'</li>';}).join('')+'</ul>':'')+
+    '<button type="button" class="btn-ghost ms-open">Ver '+mes+' completo</button>';
+  box.hidden=false;
+  box.querySelector('.ms-close').onclick=function(){
+    try{localStorage.setItem(MSUM_KEY,tag);}catch(e){}
+    box.hidden=true; if(window.Haptic)Haptic.light();
+  };
+  box.querySelector('.ms-open').onclick=function(){
+    S.period='month'; S.ref=new Date(prev.getFullYear(),prev.getMonth(),15);
+    const b=document.querySelector('#periodSeg [data-period="month"]'); if(b)setSeg('periodSeg',b);
+    renderAll(); try{window.scrollTo({top:0,behavior:'smooth'});}catch(e){}
+  };
 }
 function pendStatus(p){
   if(p.status==='completed')return {key:'completed',label:'Completado'};
   if(p.dueDate && p.dueDate < ymd(sod(new Date())))return {key:'overdue',label:'Vencido'};
   return {key:'pending',label:'Pendiente'};
 }
+/* Tarjeta "Pendientes" del panel: cuánto te deben y cuánto debes, y lo que vence pronto.
+   Antes era una gráfica de barras apiladas con conteos; esto se lee de un vistazo. */
 function renderPendChart(){
-  let incP=0,incV=0,incC=0,payP=0,payV=0,payC=0;
-  S.pendings.forEach(function(p){
-    const k=pendStatus(p).key, isInc=p.kind==='Income';
-    if(k==='completed'){isInc?incC++:payC++;}
-    else if(k==='overdue'){isInc?incV++:payV++;}
-    else {isInc?incP++:payP++;}
+  const box=document.getElementById('pendBox'); if(!box)return;
+  const today=ymd(sod(new Date()));
+  const open=S.pendings.filter(function(p){return pendStatus(p).key!=='completed';});
+  const done=S.pendings.length-open.length;
+  let cobrar=0,pagar=0,nC=0,nP=0,venc=0;
+  open.forEach(function(p){
+    if(p.kind==='Income'){cobrar+=+p.amount||0;nC++;}else{pagar+=+p.amount||0;nP++;}
+    if(pendStatus(p).key==='overdue')venc++;
   });
-  const totInc=incP+incV+incC, totPay=payP+payV+payC;
-  document.getElementById('pendCaption').textContent=(totInc+totPay)===0?'sin pendientes':(totInc+' ingreso(s) · '+totPay+' pago(s)');
-  const canvas=document.getElementById('pendChart');
-  // Sin pendientes: no dibujar ejes/rejilla vacíos — mostrar estado vacío
-  const wrap=canvas.parentElement;
-  let pes=wrap.querySelector('.pend-empty');
-  if((totInc+totPay)===0){
-    if(S.charts.pend){S.charts.pend.destroy();S.charts.pend=null;}
-    canvas.style.display='none';
-    if(!pes){pes=document.createElement('div');pes.className='pend-empty empty';pes.textContent='Sin pendientes por ahora';wrap.appendChild(pes);}
+  document.getElementById('pendCaption').textContent=!S.pendings.length?'sin pendientes'
+    :(venc?(venc===1?'1 vencido':venc+' vencidos'):(open.length?'al día':'todo completado'));
+  if(!S.pendings.length){
+    box.innerHTML='<div class="pb-empty">'+ICON.pending+'<p>Sin pendientes por ahora</p>'+
+      '<button type="button" class="btn-ghost pb-add">Agregar pendiente</button></div>';
+    box.querySelector('.pb-add').onclick=function(){if(typeof openPendModal==='function')openPendModal();};
     return;
   }
-  canvas.style.display='';
-  if(pes)pes.remove();
-  // Sus datos no dependen del periodo: si ya existe, solo actualizar (no recrear en cada cambio de día/mes)
-  if(S.charts.pend){
-    const ch=S.charts.pend;
-    ch.data.datasets[0].data=[incP,payP];
-    ch.data.datasets[1].data=[incV,payV];
-    ch.data.datasets[2].data=[incC,payC];
-    ch.update('none');
-    return;
+  function tile(kind,label,total,n){
+    return '<div class="pb-tile '+kind+'"><span class="pb-ico">'+(kind==='in'?ICON.arrowDown:ICON.arrowUp)+'</span>'+
+      '<span class="pb-k">'+label+'</span><span class="pb-v">'+money(total)+'</span>'+
+      '<span class="pb-n">'+(n===1?'1 pendiente':n+' pendientes')+'</span></div>';
   }
-  S.charts.pend=new Chart(canvas,{
-    type:'bar',
-    data:{labels:['Ingresos','Pagos'],datasets:[
-      {label:'Pendiente',data:[incP,payP],backgroundColor:tcol('--warn'),borderRadius:5,maxBarThickness:42,minBarLength:4,stack:'s'},
-      {label:'Vencido',data:[incV,payV],backgroundColor:tcol('--neg'),borderRadius:5,maxBarThickness:42,minBarLength:4,stack:'s'},
-      {label:'Completado',data:[incC,payC],backgroundColor:tcol('--pos'),borderRadius:5,maxBarThickness:42,minBarLength:4,stack:'s'}]},
-    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:true,labels:{usePointStyle:true,pointStyle:'circle',boxWidth:8,padding:12}},
-        tooltip:{callbacks:{label:function(c){return ' '+c.dataset.label+': '+c.parsed.x;}}}},
-      scales:{x:{stacked:true,beginAtZero:true,grid:{color:'rgba(255,255,255,.05)'},border:{display:false},ticks:{precision:0,stepSize:1}},
-              y:{stacked:true,grid:{display:false},border:{display:false}}},
-      animation:{duration:800,easing:'easeOutQuart'}}
-  });
+  function cuando(d){
+    if(!d)return {t:'Sin fecha',c:''};
+    const diff=Math.round((parseYMD(d)-parseYMD(today))/864e5);
+    if(diff<0)return {t:'Venció hace '+(-diff)+(diff===-1?' día':' días'),c:'late'};
+    if(diff===0)return {t:'Vence hoy',c:'soon'};
+    if(diff===1)return {t:'Vence mañana',c:'soon'};
+    return {t:'En '+diff+' días',c:diff<=7?'soon':''};
+  }
+  const next=open.slice().sort(function(a,b){return (a.dueDate||'9999')<(b.dueDate||'9999')?-1:1;}).slice(0,3);
+  const pct=S.pendings.length?Math.round(done/S.pendings.length*100):0;
+  box.innerHTML=
+    '<div class="pb-tiles">'+tile('in','Por cobrar',cobrar,nC)+tile('out','Por pagar',pagar,nP)+'</div>'+
+    '<div class="pb-prog"><div class="pb-prog-row"><span>Completados</span><span>'+done+' de '+S.pendings.length+'</span></div>'+
+      '<div class="bbar"><span class="bbar-fill ok" style="width:'+pct+'%"></span></div></div>'+
+    (next.length?'<ul class="pb-list">'+next.map(function(p){
+      const w=cuando(p.dueDate), col=safeColor(p.color);
+      return '<li><button type="button" class="pb-item" data-id="'+esc(p.id)+'">'+
+        '<span class="hr-ava" style="background:'+col+'22;color:'+col+'">'+catIcon(p.category,p.kind)+'</span>'+
+        '<span class="pb-main"><span class="pb-name">'+esc(p.category||'(sin categoría)')+'</span>'+
+        '<span class="pb-when '+w.c+'">'+w.t+'</span></span>'+
+        '<span class="pb-amt '+(p.kind==='Income'?'in':'out')+'">'+(p.kind==='Income'?'+':'−')+money(p.amount)+'</span></button></li>';
+    }).join('')+'</ul>':'<p class="pb-ok">'+ICON.check+' Todo al día</p>')+
+    '<button type="button" class="pb-all">Ver todos los pendientes</button>';
+  box.querySelector('.pb-all').onclick=function(){goToView('pending');};
+  box.querySelectorAll('.pb-item').forEach(function(b){b.onclick=function(){openPendModal(b.dataset.id);};});
 }
 function countOf(list,type){const n=list.filter(function(t){return t.type===type;}).length;return n+' '+(n===1?'movimiento':'movimientos');}
 function setSub(key,txt){const el=document.querySelector('[data-kpi-sub="'+key+'"]');if(el)el.textContent=txt;}
@@ -117,11 +187,20 @@ function countUp(key,to){
     el.classList.add(to>=from?'kpi-up':'kpi-down');
     setTimeout(function(){el.classList.remove('kpi-up','kpi-down');},800);
   }
+  setLen_(el,to);
   if(key==='balance'){writeTicker(el,to);}else{animateMoney(el,from,to);}
 }
 /* Conteo del valor (texto, barato). */
+/* Largo de la cifra final (en "caracteres") para que el CSS ajuste el tamaño y no se salga */
+function setLen_(el,n){
+  if(!el)return;
+  const txt=nf_().format(Math.abs(Math.round(n||0)));
+  const seps=(txt.match(/[.,\s]/g)||[]).length;
+  el.style.setProperty('--len',String((txt.length-seps)+seps*.5+(String(S.settings.currencySymbol||'').length*.7)+(n<0?.6:0)+.4));
+}
 function animateMoney(el,from,to){
   if(!el)return;
+  setLen_(el,to);
   if(Math.round(from)===Math.round(to)){writeMoney(el,to);return;}
   const dur=800,t0=performance.now();
   // max(0,…): el primer cuadro puede traer una marca de tiempo anterior a t0; sin esto el avance sale

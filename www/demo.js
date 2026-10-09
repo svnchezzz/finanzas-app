@@ -88,7 +88,7 @@
     ],
     goals: goals
   };
-  window.DEMO_PROFILE = { id:'demo', email:'ana.gomez@correo.com', user_metadata:{ nickname:'Ana Gómez' } };
+  window.DEMO_PROFILE = { id:'demo', email:'usuario@gmail.com', user_metadata:{ nickname:'usuario' } };
 })();
 
 /* ═══ Versión en inglés del modo demo (?demo=1&lang=en) ═══════════════════════════════════

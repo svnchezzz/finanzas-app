@@ -6,7 +6,7 @@
   <!-- Intro: fondo del tema desde el primer pintado para que no parpadee (intro.js lo retira) -->
   <style>html.no-boot #boot{display:none!important}html.ci-on,html.ci-on body{background:#F7F7F5!important}html.ci-on[data-theme="dark"],html.ci-on[data-theme="dark"] body{background:#0A0A0A!important}</style>
   <script>document.documentElement.classList.add('ci-on');</script>
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- PWA / instalable en pantalla de inicio -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -40,7 +40,7 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' rx='40' fill='%234F46E5'/%3E%3Ctext x='50%25' y='54%25' font-size='90' text-anchor='middle' dominant-baseline='middle' fill='white' font-family='Arial' font-weight='bold'%3E%24%3C/text%3E%3C/svg%3E">
   <!-- Fuentes locales (sin internet). Antes venían de fonts.googleapis.com -->
   <link rel="stylesheet" href="vendor/fonts/app-fonts.css">
-  <link rel="stylesheet" href="styles.css?v=50">
+  <link rel="stylesheet" href="styles.css?v=58">
 </head>
 <body>
   <script src="intro.js?v=12"></script>
@@ -155,6 +155,8 @@
           </div>
         </div>
 
+        <section class="card month-sum" id="monthSum" aria-labelledby="msTitle" hidden></section>
+
         <div class="donut-grid">
           <div class="card donut-card" data-type="Expense">
             <div class="card-head"><h3>Gastos</h3><span class="card-total" data-donut-total="Expense"></span></div>
@@ -180,7 +182,7 @@
           </div>
           <div class="card pend-card">
             <div class="card-head"><h3>Pendientes</h3><span class="muted" id="pendCaption"></span></div>
-            <div class="pend-wrap"><canvas id="pendChart"></canvas></div>
+            <div class="pend-box" id="pendBox"></div>
           </div>
         </div>
       </section>
@@ -195,11 +197,6 @@
             <button type="button" class="round-btn" id="histSearchBtn" aria-label="Buscar" aria-expanded="false">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             </button>
-            <button type="button" class="round-btn rb-morph" id="histFilterBtn" aria-label="Filtros" aria-expanded="false">
-              <svg class="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/></svg>
-              <svg class="ic-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-              <span class="rb-dot" hidden></span>
-            </button>
           </div>
         </div>
         <div class="search-box hist-search hidden" id="histSearchRow">
@@ -207,6 +204,9 @@
           <input type="text" id="histSearch" aria-label="Buscar movimientos" placeholder="Buscar…" autocomplete="off">
           <button type="button" class="search-clear" id="histSearchClear" aria-label="Limpiar">✕</button>
         </div>
+        <section class="hist-sum" id="histSum" aria-label="Resumen"></section>
+        <div class="hist-chips" id="histChips" role="group" aria-label="Mostrar"></div>
+        <div class="hist-next" id="histNext" hidden></div>
         <div id="historyList" class="history-list"></div>
       </section>
 
@@ -334,6 +334,8 @@
         <label class="field-label" for="amountInput">Monto</label>
         <div class="amount-field"><span class="cur" id="curSign">$</span>
           <input type="text" inputmode="numeric" pattern="[0-9]*" id="amountInput" placeholder="0" autocomplete="off"></div>
+        <div class="amt-sugs" id="amtSugs" role="group" aria-label="Montos que usaste antes" hidden></div>
+        <p class="bud-hint" id="budHint" aria-live="polite" hidden></p>
 
         <div id="txColorRow" class="hidden">
           <label class="field-label" id="lbl-swatchRow">Color de la nueva etiqueta</label>
@@ -345,7 +347,7 @@
           <div><label class="field-label" for="noteInput">Nota (opcional)</label><input type="text" id="noteInput" placeholder="ej. taxi a la oficina" maxlength="60"></div>
         </div>
       </div>
-      <div class="modal-foot"><button class="btn-ghost" id="cancelBtn">Cancelar</button><button class="btn-primary" id="saveBtn">Guardar</button></div>
+      <div class="modal-foot"><button class="btn-ghost tx-del" id="txDeleteBtn" hidden>Eliminar</button><button class="btn-ghost" id="cancelBtn">Cancelar</button><button class="btn-primary" id="saveBtn">Guardar</button></div>
     </div>
   </div>
 
@@ -380,6 +382,16 @@
       </div>
     </div>
   </div>
+
+  <!-- Modal importar -->
+  <div class="modal-backdrop" id="importBackdrop">
+    <div class="modal" id="importModal" role="dialog" aria-modal="true" aria-labelledby="importTitle">
+      <div class="modal-head"><h2 id="importTitle">Importar movimientos</h2><button class="icon-btn" id="importClose" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+      <div class="modal-body" id="importBody"></div>
+      <div class="modal-foot" id="importFoot"></div>
+    </div>
+  </div>
+  <input type="file" id="importFile" accept=".xlsx,.xls,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden>
 
   <!-- Modal pendiente -->
   <div class="modal-backdrop" id="pendBackdrop">
@@ -433,24 +445,25 @@
     <div class="modal" id="editCatModal" role="dialog" aria-modal="true" aria-labelledby="editCatTitle" style="width:min(480px,94vw)">
       <div class="modal-head"><h2 id="editCatTitle">Editar categoría</h2><button class="icon-btn" id="editCatClose" aria-label="Cerrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
       <div class="modal-body">
-        <label class="field-label" for="editCatName">Nombre</label>
-        <input type="text" id="editCatName" class="full-input" maxlength="28" placeholder="Nombre de la categoría…">
-
-        <label class="field-label" id="lbl-editCatSwatches">Color</label>
-        <p class="hint" id="editCatHint" style="margin-top:0">Selecciona un color.</p>
-        <div class="color-pick"><div class="swatches" id="editCatSwatches" role="group" aria-labelledby="lbl-editCatSwatches"></div><button type="button" class="swatch-custom" id="editCatSwatchesCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
-
-        <label class="field-label" id="lbl-editCatIcons">Icono</label>
-        <p class="hint" style="margin-top:0">Se asigna solo según el nombre; aquí puedes fijar uno.</p>
-        <div class="icon-grid" id="editCatIcons" role="group" aria-labelledby="lbl-editCatIcons"></div>
-
         <div class="cat-preview">
           <span class="cat-preview-dot" id="editCatPreviewDot"></span>
           <div>
-            <div class="cat-preview-label">Vista previa</div>
+            <div class="cat-preview-label">Así se verá</div>
             <div class="cat-preview-name" id="editCatPreviewName">—</div>
           </div>
         </div>
+
+        <label class="field-label" for="editCatName"><span class="step-n">1</span>Nombre</label>
+        <input type="text" id="editCatName" class="full-input" maxlength="28" placeholder="Nombre de la categoría…">
+        <div class="cat-sugs" id="editCatSugs" hidden></div>
+
+        <label class="field-label" id="lbl-editCatIcons"><span class="step-n">2</span>Ícono</label>
+        <p class="hint" style="margin-top:0;margin-bottom:10px">Te sugerimos uno según el nombre; toca otro si prefieres.</p>
+        <div class="icon-grid" id="editCatIcons" role="group" aria-labelledby="lbl-editCatIcons"></div>
+
+        <label class="field-label" id="lbl-editCatSwatches"><span class="step-n">3</span>Color</label>
+        <p class="hint" id="editCatHint" style="margin-top:0;margin-bottom:10px">Selecciona un color.</p>
+        <div class="color-pick"><div class="swatches" id="editCatSwatches" role="group" aria-labelledby="lbl-editCatSwatches"></div><button type="button" class="swatch-custom" id="editCatSwatchesCustom" title="Elegir cualquier color" aria-label="Elegir cualquier color"></button></div>
       </div>
       <div class="modal-foot"><button class="btn-ghost" id="editCatCancel">Cancelar</button><button class="btn-primary" id="editCatSave">Guardar cambios</button></div>
     </div>
@@ -589,13 +602,13 @@
       <section class="sp-group">
         <h3 class="sp-group-title">Seguridad</h3>
         <div class="sp-card">
-          <div class="sp-row">
+          <label class="sp-row">
             <div class="sp-info">
               <span class="sp-name">Bloqueo con PIN</span>
               <span class="sp-sub" id="pinStateTxt">Protege la app con un PIN de 4 dígitos</span>
             </div>
-            <label class="switch"><input type="checkbox" id="pinToggle" aria-label="Bloqueo con PIN"><span class="slider"></span></label>
-          </div>
+            <span class="switch"><input type="checkbox" id="pinToggle" aria-label="Bloqueo con PIN"><span class="slider"></span></span>
+          </label>
           <button class="sp-row sp-row-btn hidden" id="pinChangeBtn">
             <div class="sp-info">
               <span class="sp-name">Cambiar PIN</span>
@@ -603,13 +616,13 @@
             </div>
             <svg class="sp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
           </button>
-          <div class="sp-row hidden" id="bioRow">
+          <label class="sp-row hidden" id="bioRow">
             <div class="sp-info">
               <span class="sp-name">Huella digital</span>
               <span class="sp-sub" id="bioStateTxt">Desbloquea con tu huella en vez del PIN</span>
             </div>
-            <label class="switch"><input type="checkbox" id="bioToggle" aria-label="Huella digital"><span class="slider"></span></label>
-          </div>
+            <span class="switch"><input type="checkbox" id="bioToggle" aria-label="Huella digital"><span class="slider"></span></span>
+          </label>
         </div>
         <p class="sp-foot">Se pide al abrir la app y cada vez que vuelves a ella. Al exportar no se pide, porque la salida la provoca la propia app.</p>
       </section>
@@ -618,34 +631,41 @@
       <section class="sp-group" id="notifGroup">
         <h3 class="sp-group-title">Notificaciones</h3>
         <div class="sp-card">
-          <div class="sp-row">
+          <label class="sp-row">
             <div class="sp-info">
               <span class="sp-name">Recordatorio diario</span>
               <span class="sp-sub">A las 8 p.m., si no registraste nada ese día</span>
             </div>
-            <label class="switch"><input type="checkbox" id="ntDaily" aria-label="Recordatorio diario"><span class="slider"></span></label>
-          </div>
-          <div class="sp-row">
+            <span class="switch"><input type="checkbox" id="ntDaily" aria-label="Recordatorio diario"><span class="slider"></span></span>
+          </label>
+          <label class="sp-row">
             <div class="sp-info">
               <span class="sp-name">Alertas de presupuesto</span>
               <span class="sp-sub">Avisa al llegar al 80% y al 100%</span>
             </div>
-            <label class="switch"><input type="checkbox" id="ntBudget" aria-label="Alertas de presupuesto"><span class="slider"></span></label>
-          </div>
-          <div class="sp-row">
+            <span class="switch"><input type="checkbox" id="ntBudget" aria-label="Alertas de presupuesto"><span class="slider"></span></span>
+          </label>
+          <label class="sp-row">
             <div class="sp-info">
               <span class="sp-name">Avisos de pendientes</span>
               <span class="sp-sub">Cobros y pagos próximos o vencidos</span>
             </div>
-            <label class="switch"><input type="checkbox" id="ntPend" aria-label="Avisos de pendientes"><span class="slider"></span></label>
-          </div>
-          <div class="sp-row">
+            <span class="switch"><input type="checkbox" id="ntPend" aria-label="Avisos de pendientes"><span class="slider"></span></span>
+          </label>
+          <label class="sp-row">
+            <div class="sp-info">
+              <span class="sp-name">Movimientos recurrentes</span>
+              <span class="sp-sub">El día antes de que se registre un pago o ingreso fijo</span>
+            </div>
+            <span class="switch"><input type="checkbox" id="ntRecur" aria-label="Movimientos recurrentes"><span class="slider"></span></span>
+          </label>
+          <label class="sp-row">
             <div class="sp-info">
               <span class="sp-name">Metas de ahorro</span>
               <span class="sp-sub">Avisa al acercarte y al cumplir la meta</span>
             </div>
-            <label class="switch"><input type="checkbox" id="ntGoal" aria-label="Metas de ahorro"><span class="slider"></span></label>
-          </div>
+            <span class="switch"><input type="checkbox" id="ntGoal" aria-label="Metas de ahorro"><span class="slider"></span></span>
+          </label>
           <button class="sp-row sp-row-btn" id="ntTest">
             <div class="sp-info">
               <span class="sp-name">Enviar una de prueba</span>
@@ -713,6 +733,13 @@
             </div>
             <svg class="sp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
           </button>
+          <button class="sp-row sp-row-btn" id="spImport">
+            <div class="sp-info">
+              <span class="sp-name">Importar movimientos</span>
+              <span class="sp-sub">Desde un Excel o CSV, como el que exportas aquí</span>
+            </div>
+            <svg class="sp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
           <button class="sp-row sp-row-btn" id="spRefresh">
             <div class="sp-info">
               <span class="sp-name">Actualizar desde el servidor</span>
@@ -759,7 +786,6 @@
     </svg>
   </div>
 
-  <div class="ios-menu" id="histMenu" role="menu" aria-label="Filtros del historial"></div>
   <div id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
 
   <!-- Menú "Más" (overflow): en PC quedan los 3 botones en línea.
@@ -827,7 +853,8 @@
       var next=root.getAttribute('data-theme')==='dark'?'light':'dark';
       switchTheme(function(){
         root.setAttribute('data-theme',next);
-        try{localStorage.setItem('cfms-theme',next);}catch(e){}
+        var sys=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+        try{localStorage.setItem('cfms-theme',next===sys?'system':next);}catch(e){}
         if(meta)meta.setAttribute('content',next==='dark'?'#0A0A0A':'#F7F7F5');
         if(window.Chart){try{Chart.defaults.color=getComputedStyle(root).getPropertyValue('--ink-2').trim();}catch(e){}}
         window._noChartPulse=true;                 // sin re-animación de entrada de gráficas
@@ -861,20 +888,23 @@
   <script src="notify.js?v=21"></script>
   <script src="haptics.js?v=21"></script>
   <!-- Cliente de la app, dividido por pantallas (scripts clásicos con ámbito global compartido; el orden importa) -->
-  <script src="app/core.js?v=34"></script>
-  <script src="app/shell.js?v=33"></script>
-  <script src="app/dashboard.js?v=34"></script>
-  <script src="app/history.js?v=33"></script>
-  <script src="app/categories.js?v=33"></script>
+  <script src="app/core.js?v=38"></script>
+  <script src="app/shell.js?v=37"></script>
+  <script src="app/dashboard.js?v=40"></script>
+  <script src="app/history.js?v=36"></script>
+  <script src="app/categories.js?v=34"></script>
   <script src="app/pending.js?v=33"></script>
-  <script src="app/movement.js?v=34"></script>
-  <script src="app/export.js?v=33"></script>
-  <script src="app/budgets.js?v=33"></script>
-  <script src="app/recurring.js?v=33"></script>
+  <script src="app/movement.js?v=37"></script>
+  <script src="app/export.js?v=34"></script>
+  <script src="app/import.js?v=2"></script>
+  <script src="app/budgets.js?v=34"></script>
+  <script src="app/recurring.js?v=34"></script>
   <script src="app/goals.js?v=33"></script>
   <script src="app/util.js?v=33"></script>
-  <script src="db.js?v=35"></script>
-  <script src="settings.js?v=31"></script>
-  <script src="a11y.js?v=1"></script>
+  <script src="db.js?v=36"></script>
+  <script src="settings.js?v=32"></script>
+  <script src="a11y.js?v=2"></script>
+  <script src="back.js?v=1"></script>
+  <script src="widget.js?v=1"></script>
 </body>
 </html>

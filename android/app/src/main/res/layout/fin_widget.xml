@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/fw_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/fw_bg"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- Fila superior: etiqueta + mes -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="@string/fw_available"
+            android:textColor="@color/fw_secondary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/fw_month"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:textColor="@color/fw_secondary"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- Saldo -->
+    <TextView
+        android:id="@+id/fw_balance"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:text="@string/fw_empty_balance"
+        android:textColor="@color/fw_text"
+        android:textSize="26sp"
+        android:textStyle="bold" />
+
+    <!-- Ingresos / gastos del mes -->
+    <LinearLayout
+        android:id="@+id/fw_totals"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/fw_income"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/fw_green"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/fw_expense"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/fw_red"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- Estado vacío (antes de que la app envíe datos) -->
+    <TextView
+        android:id="@+id/fw_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:text="@string/fw_empty_hint"
+        android:textColor="@color/fw_secondary"
+        android:textSize="12sp" />
+
+    <!-- Espacio flexible: empuja la fila inferior al fondo -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:minHeight="6dp" />
+
+    <!-- Fila inferior: actualizado + botón Agregar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/fw_updated"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/fw_secondary"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/fw_add"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minHeight="40dp"
+            android:background="@drawable/fw_btn_bg"
+            android:gravity="center"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:maxLines="1"
+            android:text="@string/fw_add"
+            android:textColor="@color/fw_on_accent"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

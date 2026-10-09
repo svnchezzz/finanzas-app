@@ -88,6 +88,29 @@ function scanPendingsNotif(notify){
     }
   });
 }
+// Recurrentes: aviso a las 9:00 del día ANTES de que se registre cada uno.
+// La fecha es el día del mes de la recurrencia (o el último día si el mes es más corto).
+function nextRecurDate_(r){
+  const hoy=sod(new Date());
+  function enMes(y,m){return new Date(y,m,Math.min(r.day||1,new Date(y,m+1,0).getDate()));}
+  let d=enMes(hoy.getFullYear(),hoy.getMonth());
+  const genEsteMes=r.lastGen&&String(r.lastGen).slice(0,7)===ymd(d).slice(0,7);
+  if(d<hoy||genEsteMes)d=enMes(hoy.getFullYear(),hoy.getMonth()+1);
+  return d;
+}
+function scheduleRecurAlerts(){
+  if(!window.Notif)return;
+  (S.recurring||[]).forEach(function(r){
+    const key='recur-reminder:'+r.id;
+    if(!r.active||!ntOn('recur')){Notif.cancel(key);return;}
+    const d=nextRecurDate_(r);
+    const at=new Date(d.getFullYear(),d.getMonth(),d.getDate()-1,9,0,0,0);
+    if(at.getTime()<=Date.now()){Notif.cancel(key);return;}
+    const que=r.type==='Income'?'Mañana entra tu ingreso fijo: ':(r.type==='Savings'?'Mañana se aparta tu ahorro fijo: ':'Mañana se registra tu pago fijo: ');
+    Notif.at(key,'🔁 Movimiento recurrente',que+r.category+' · '+money(r.amount),at);
+  });
+}
+function cancelRecurAlert(id){if(window.Notif)Notif.cancel('recur-reminder:'+id);}
 // Recordatorio diario: si un día no registras ningún movimiento, avisa a las 20:00.
 // Programa los próximos días y cancela solo el día en que sí registras algo.
 function scheduleDailyReminders(){
@@ -124,6 +147,7 @@ function aplicarNotifs(){
       if(p.status==='completed')cancelPendAlerts(p.id);
       else schedulePendAlerts(p);
     });
+    scheduleRecurAlerts();                          // respeta ntOn('recur')
     (S.categories.Expense||[]).forEach(function(c){ evalBudget(c.name,false); });
     (S.goals||[]).forEach(function(g){ evalGoal(g,false); });
   }catch(e){}
@@ -140,6 +164,7 @@ function notifStartup(){
     (S.goals||[]).forEach(function(g){ evalGoal(g,notify); });
     scanPendingsNotif(notify);
     scheduleDailyReminders();
+    scheduleRecurAlerts();
     if(firstRun)Notif.markSeen('__baseline__');
   });
 }

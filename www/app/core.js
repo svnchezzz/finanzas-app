@@ -10,7 +10,7 @@
 
 const APP_NAME='Control Finanzas MS';
 const TXT={guardado:'Guardado',eliminado:'Eliminado',errGuardar:'No se pudo guardar — reintenta',
-  errBorrar:'No se pudo eliminar',sinDatos:'Sin datos en este periodo'};
+  errBorrar:'No se pudo eliminar',sinDatos:'Sin datos en estas fechas'};
 
 // Paletas por tipo (respaldo si el servidor no las envía)
 const PALETTES_FALLBACK={
@@ -54,7 +54,7 @@ function ntOn(k){ return typeof window.NotifPrefs!=='function' || window.NotifPr
 function successFx(){
   const o=document.getElementById('successFx'); if(!o)return;
   o.classList.remove('show'); void o.offsetWidth; o.classList.add('show');
-  setTimeout(function(){o.classList.remove('show');},1900); // debe durar lo mismo que sfIn/sfBadge
+  setTimeout(function(){o.classList.remove('show');},800); // debe durar lo mismo que sfIn/sfBadge
 }
 
 /* ── Iconos de categoría ─────────────────────────────────────────────────
@@ -86,10 +86,77 @@ const CAT_SVG={
   repeat:_ci('<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>'),
   gym:_ci('<path d="M6.5 6.5v11M17.5 6.5v11"/><path d="M3 9.5v5M21 9.5v5"/><path d="M6.5 12h11"/>'),
   coffee:_ci('<path d="M17 8h2a3 3 0 0 1 0 6h-2"/><path d="M3 8h14v7a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z"/>'),
-  tag:_ci('<path d="M20.6 13.4 12 22 2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><path d="M7 7h.01"/>')
+  tag:_ci('<path d="M20.6 13.4 12 22 2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><path d="M7 7h.01"/>'),
+  music:_ci('<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>'),
+  movie:_ci('<rect x="2.5" y="6" width="19" height="14" rx="2"/><path d="M2.5 10h19"/><path d="m7 6 2 4M12 6l2 4M17 6l2 4"/>'),
+  tv:_ci('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="m17 2-5 5-5-5"/>'),
+  ticket:_ci('<path d="M3 9a3 3 0 0 0 0 6v3a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3a3 3 0 0 0 0-6V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z"/><path d="M13 5v2M13 11v2M13 17v2"/>'),
+  drinks:_ci('<path d="M8 22h8M12 11v11"/><path d="M3 3h18l-9 8z"/>'),
+  pizza:_ci('<path d="M12 2 3 20c6 2.7 12 2.7 18 0z"/><path d="M5.6 15.5c4.2 1.5 8.6 1.5 12.8 0"/><circle cx="12" cy="10" r="1"/><circle cx="10" cy="15.5" r=".8"/>'),
+  key:_ci('<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3M17 6l3 3M14 9l2 2"/>'),
+  building:_ci('<rect x="4" y="2.5" width="16" height="19" rx="2"/><path d="M9.5 21.5v-4h5v4"/><path d="M8.5 7h.01M12 7h.01M15.5 7h.01M8.5 11h.01M12 11h.01M15.5 11h.01M8.5 15h.01M15.5 15h.01"/>'),
+  water:_ci('<path d="M12 2.7S5 10 5 14.5a7 7 0 0 0 14 0C19 10 12 2.7 12 2.7z"/>'),
+  fuel:_ci('<path d="M3.5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"/><path d="M2 21h13"/><path d="M3.5 10h10"/><path d="M13.5 8h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V9l-3-3"/>'),
+  parking:_ci('<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/>'),
+  plane:_ci('<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>'),
+  bike:_ci('<circle cx="5.5" cy="17" r="3.5"/><circle cx="18.5" cy="17" r="3.5"/><path d="M15 5.5h2.5L18.5 17"/><path d="M5.5 17 9 9.5h8M9 9.5 12 17h-1"/>'),
+  pill:_ci('<path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7z"/><path d="m8.5 8.5 7 7"/>'),
+  shield:_ci('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>'),
+  receipt:_ci('<path d="M5 2v20l2-1.3 2 1.3 2-1.3 2 1.3 2-1.3 2 1.3 2-1.3V2l-2 1.3L15 2l-2 1.3L11 2 9 3.3 7 2z"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/>'),
+  handshake:_ci('<path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.9-3.9a3 3 0 0 0-4.2 0l-.9.9a1 1 0 1 1-3-3l2.8-2.8a5.8 5.8 0 0 1 7.1-.9l.5.3a2 2 0 0 0 1.4.3L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/>'),
+  piggy:_ci('<path d="M19 9.5c-.6-2.6-3.4-4.5-7-4.5-4 0-7 2.6-7 6 0 1.8.8 3.3 2 4.4V19h3v-2h4v2h3v-3.2c.9-.6 1.6-1.4 2-2.3h2v-4z"/><path d="M15 9.5h.01"/><path d="M10 5.2V3.5"/>'),
+  donate:_ci('<path d="M11 14h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 16"/><path d="m7 20 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9"/><path d="m2 15 6 6"/><path d="M19.5 8.5c.7-.7 1.5-1.6 1.5-2.7A2.73 2.73 0 0 0 16 4a2.78 2.78 0 0 0-5 1.8c0 1.2.8 2 1.5 2.8L16 12z"/>'),
+  beauty:_ci('<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/>'),
+  baby:_ci('<circle cx="12" cy="8.5" r="5"/><path d="M10 8h.01M14 8h.01"/><path d="M10.5 10.5a2 2 0 0 0 3 0"/><path d="M6 21a6 6 0 0 1 12 0"/>'),
+  book:_ci('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>'),
+  tools:_ci('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>'),
+  clean:_ci('<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>'),
+  laptop:_ci('<rect x="4" y="4" width="16" height="11" rx="1.5"/><path d="M2 19h20"/>'),
+  camera:_ci('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.4"/>'),
+  plant:_ci('<path d="M12 22V11"/><path d="M12 11C12 6 8 3 3 3c0 5 4 8 9 8z"/><path d="M12 14c0-4 3-7 8-7 0 4-3 7-8 7z"/>'),
+  ball:_ci('<circle cx="12" cy="12" r="9"/><path d="m12 7.5 4 2.9-1.5 4.6h-5L8 10.4z"/><path d="M12 3v4.5M21 10.5l-5 0M18 19.5l-3.5-4.5M6 19.5l3.5-4.5M3 10.5h5"/>'),
+  heart:_ci('<path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7z"/>')
 };
+/* Nombre de cada ícono (lectores de pantalla y la cuadrícula de elección) */
+const CAT_LABEL={home:'Hogar',bus:'Transporte',car:'Carro',food:'Comida',cart:'Mercado',health:'Salud',edu:'Educación',fun:'Videojuegos',
+  travel:'Viajes',clothes:'Ropa',bolt:'Energía',wifi:'Internet',phone:'Celular',paw:'Mascotas',gift:'Regalos',money:'Salario',
+  briefcase:'Trabajo',invest:'Inversión',bank:'Banco',card:'Tarjeta',cash:'Efectivo',repeat:'Suscripción',gym:'Gimnasio',coffee:'Café',
+  tag:'Etiqueta',music:'Música',movie:'Cine',tv:'Streaming',ticket:'Eventos',drinks:'Bebidas',pizza:'Comida rápida',key:'Arriendo',
+  building:'Administración',water:'Agua',fuel:'Gasolina',parking:'Parqueadero',plane:'Vuelos',bike:'Bicicleta',pill:'Medicamentos',
+  shield:'Seguros',receipt:'Impuestos',handshake:'Préstamos',piggy:'Ahorro',donate:'Donaciones',beauty:'Belleza',baby:'Hijos',
+  book:'Libros',tools:'Reparaciones',clean:'Aseo',laptop:'Tecnología',camera:'Fotografía',plant:'Plantas',ball:'Deportes',heart:'Pareja'};
 const CAT_KEYS=[
-  [/(casa|hogar|arriendo|renta|hipoteca|alquiler|mueble)/,'home'],
+  // Específicos primero: ganan sobre los generales de abajo
+  [/(musica|cancion|instrumento|guitarra|piano|spotify|deezer|youtube music)/,'music'],
+  [/(cine|pelicula|teatro)/,'movie'],
+  [/(netflix|disney|hbo|\bmax\b|prime video|streaming|television|\btv\b|cable)/,'tv'],
+  [/(concierto|evento|boleta|entrada|festival)/,'ticket'],
+  [/(peluqueria|barberia|belleza|unas|manicure|\bspa\b|cosmetic|maquillaje|corte de pelo)/,'beauty'],
+  [/(\bbar\b|trago|cerveza|licor|vino|coctel|rumba|discoteca)/,'drinks'],
+  [/(pizza|hamburguesa|comida rapida|snack|antojo|perro caliente)/,'pizza'],
+  [/(arriendo|alquiler|\brenta\b)/,'key'],
+  [/(administracion|conjunto|condominio|edificio)/,'building'],
+  [/(agua|acueducto)/,'water'],
+  [/(gasolina|combustible|tanqueo|diesel|acpm)/,'fuel'],
+  [/(parqueadero|parqueo|estacionamiento)/,'parking'],
+  [/(vuelo|avion|aerolinea|tiquete)/,'plane'],
+  [/(bici|patineta|scooter)/,'bike'],
+  [/(medicamento|medicina|drogueria|farmacia|pastilla|vitamina)/,'pill'],
+  [/(seguro|soat|poliza)/,'shield'],
+  [/(impuesto|predial|dian|retencion|\biva\b|declaracion)/,'receipt'],
+  [/(prestamo|deuda|abono|credito personal)/,'handshake'],
+  [/(alcancia|cesantia|ahorro)/,'piggy'],
+  [/(donacion|diezmo|ofrenda|caridad|iglesia)/,'donate'],
+  [/(bebe|hijo|hija|nino|nina|panal|guarderia|jardin infantil)/,'baby'],
+  [/(libro|lectura|papeleria|utiles)/,'book'],
+  [/(reparacion|arreglo|mantenimiento|plomero|ferreteria|herramienta)/,'tools'],
+  [/(aseo|limpieza|lavanderia|detergente|empleada)/,'clean'],
+  [/(computador|portatil|tecnologia|software|laptop|electronic|videojuego|consola)/,'laptop'],
+  [/(foto|camara)/,'camera'],
+  [/(planta|jardin|vivero)/,'plant'],
+  [/(futbol|deporte|partido|cancha|tenis|basket|natacion)/,'ball'],
+  [/(pareja|novi|cita|aniversario)/,'heart'],
+  [/(casa|hogar|arriendo|\brenta\b|hipoteca|alquiler|mueble)/,'home'],
   [/(bus|buseta|transporte|taxi|uber|metro|pasaje|didi)/,'bus'],
   [/(gasolina|carro|auto|moto|vehiculo|parqueadero|peaje|taller)/,'car'],
   [/(comida|restaurante|almuerzo|cena|desayuno|domicilio|rappi)/,'food'],
@@ -133,16 +200,18 @@ function catIcon(name,type){
 function renderEditCatIcons(){
   const g=document.getElementById('editCatIcons'); if(!g)return;
   const cur=S.editCat.icon||'';
-  let html='<button type="button" class="icon-opt'+(cur?'':' active')+'" data-ico="" title="Automático según el nombre"><span>Auto</span></button>';
+  let html='<button type="button" class="icon-opt auto'+(cur?'':' active')+'" data-ico="" title="Sugerido según el nombre" aria-label="Ícono sugerido según el nombre">'+
+    (typeof autoCatIcon_==='function'?autoCatIcon_():CAT_SVG.tag)+'<em>Auto</em></button>';
   Object.keys(CAT_SVG).forEach(function(k){
-    html+='<button type="button" class="icon-opt'+(cur===k?' active':'')+'" data-ico="'+k+'">'+CAT_SVG[k]+'</button>';
+    const lb=CAT_LABEL[k]||k;
+    html+='<button type="button" class="icon-opt'+(cur===k?' active':'')+'" data-ico="'+k+'" title="'+lb+'" aria-label="'+lb+'" aria-pressed="'+(cur===k)+'">'+CAT_SVG[k]+'</button>';
   });
   g.innerHTML=html;
   g.querySelectorAll('.icon-opt').forEach(function(b){
     b.addEventListener('click',function(){
       S.editCat.icon=this.dataset.ico||'';
-      g.querySelectorAll('.icon-opt').forEach(function(x){x.classList.remove('active');});
-      this.classList.add('active');
+      g.querySelectorAll('.icon-opt').forEach(function(x){x.classList.remove('active');x.setAttribute('aria-pressed','false');});
+      this.classList.add('active');this.setAttribute('aria-pressed','true');
       updateEditCatPreview();               // se refleja al instante en la vista previa
       if(window.Haptic&&Haptic.light)Haptic.light();
     });
@@ -184,10 +253,11 @@ function smartLine(exp,sav){
   const pExp=sumType(prevPeriodTx(),'Expense');
   if(pExp>0&&Math.round(exp)!==Math.round(pExp)){
     const pct=Math.round(Math.abs(exp-pExp)/pExp*100);
-    if(pct>200)return exp>pExp?('Gastaste '+money(exp-pExp)+' más que el periodo anterior'):('Gastaste '+money(pExp-exp)+' menos que el periodo anterior');
-    if(pct>0)return exp<pExp?('Gastaste '+pct+'% menos que el periodo anterior'):('Gastaste '+pct+'% más que el periodo anterior');
+    const P=perTxt();
+    if(pct>200)return exp>pExp?('Gastaste '+money(exp-pExp)+' más '+P.que):('Gastaste '+money(pExp-exp)+' menos '+P.que);
+    if(pct>0)return exp<pExp?('Gastaste '+pct+'% menos '+P.que):('Gastaste '+pct+'% más '+P.que);
   }
-  if(sav>0)return 'Ahorraste '+money(sav)+' este periodo';
+  if(sav>0)return 'Ahorraste '+money(sav)+' '+perTxt().este;
   return 'Ingresos − gastos − ahorro apartado';
 }
 
@@ -199,6 +269,8 @@ const PLUR={day:'días',week:'semanas',month:'meses',year:'años'};
 const ICON={
   edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
+  arrowDown:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>',
+  arrowUp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
   undo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3.5 13a9 9 0 1 0 2.3-9.3L3 7"/></svg>',
   pause:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
@@ -283,6 +355,19 @@ function shiftRef(ref,period,dir){
   else if(period==='month')d.setMonth(d.getMonth()+dir);
   else d.setFullYear(d.getFullYear()+dir);
   return d;
+}
+
+/* Nombre de lo que se compara, en vez de "periodo": "ayer", "la semana anterior",
+   "el mes anterior"… y de lo que se ve ("hoy", "este mes", "en septiembre"). */
+function perTxt(period,ref){
+  period=period||S.period; ref=ref||S.ref;
+  const now=new Date(), b=periodBounds(ref,period), actual=now>=b.start&&now<=sod(new Date(b.end.getTime()+864e5-1));
+  if(period==='day')return actual
+    ?{este:'hoy',vs:'vs. ayer',que:'que ayer',igual:'igual que ayer'}
+    :{este:'ese día',vs:'vs. día anterior',que:'que el día anterior',igual:'igual al día anterior'};
+  if(period==='week')return {este:actual?'esta semana':'esa semana',vs:'vs. semana anterior',que:'que la semana anterior',igual:'igual a la semana anterior'};
+  if(period==='month')return {este:actual?'este mes':'en '+MESES[ref.getMonth()],vs:'vs. mes anterior',que:'que el mes anterior',igual:'igual al mes anterior'};
+  return {este:actual?'este año':'en '+ref.getFullYear(),vs:'vs. año anterior',que:'que el año anterior',igual:'igual al año anterior'};
 }
 
 /* ── Mini calendario ── */

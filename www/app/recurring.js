@@ -12,7 +12,7 @@ function renderRecurring(){
     return '<div class="recur-item'+(r.active?'':' off')+'" style="animation-delay:'+(i*30)+'ms">'+
       '<span class="pend-dot" style="background:'+safeColor(r.color)+'"></span>'+
       '<div class="pend-main"><span class="pend-cat">'+esc(r.category)+'<span class="pend-kind '+r.type+'">'+tipo+'</span>'+(r.active?'':'<span class="b-tag off">Pausado</span>')+'</span>'+
-        '<span class="pend-meta"><span>'+ICON.cal+'cada día '+r.day+'</span>'+(r.note?'<span>'+ICON.note+esc(r.note)+'</span>':'')+'</span></div>'+
+        '<span class="pend-meta"><span>'+ICON.cal+'cada día '+r.day+(r.active?(function(d){return ' · próximo '+d.getDate()+' '+MON[d.getMonth()];})(nextRecurDate_(r)):'')+'</span>'+(r.note?'<span>'+ICON.note+esc(r.note)+'</span>':'')+'</span></div>'+
       '<span class="pend-amt">'+money(r.amount)+'</span>'+
       '<div class="pend-acts">'+
         '<button class="pend-act" data-act="toggle" data-id="'+esc(r.id)+'" title="'+(r.active?'Pausar':'Activar')+'" aria-label="'+(r.active?'Pausar':'Activar')+'">'+(r.active?ICON.pause:ICON.play)+'</button>'+
@@ -29,7 +29,7 @@ function renderRecurring(){
 function toggleRecur(id){
   const r=S.recurring.find(function(x){return x.id===id;});if(!r)return;
   const prev=r.active; r.active=!r.active; renderRecurring();
-  gs('updateRecurring',id,r).then(function(){toast(r.active?'Recurrencia activada':'Recurrencia pausada','ok');})
+  gs('updateRecurring',id,r).then(function(){toast(r.active?'Recurrencia activada':'Recurrencia pausada','ok');scheduleRecurAlerts();})
     .catch(function(){r.active=prev;renderRecurring();toast('No se pudo actualizar','err');});
 }
 function removeRecur(id){
@@ -38,7 +38,7 @@ function removeRecur(id){
     const idx=S.recurring.findIndex(function(x){return x.id===id;});if(idx<0)return;
     animateRemove(rowEl('recurList',id,'.recur-item'),function(){
     const removed=S.recurring[idx];S.recurring.splice(idx,1);renderRecurring();
-    gs('deleteRecurring',id).then(function(){toast('Recurrencia eliminada','ok');})
+    gs('deleteRecurring',id).then(function(){toast('Recurrencia eliminada','ok');cancelRecurAlert(id);})
       .catch(function(){S.recurring.splice(idx,0,removed);renderRecurring();toast('No se pudo eliminar','err');});
     });
   });
@@ -81,12 +81,12 @@ function saveRecur(){
   if(editId){
     const idx=S.recurring.findIndex(function(x){return x.id===editId;});const prev=S.recurring[idx];
     S.recurring[idx]=Object.assign({id:editId,lastGen:prev.lastGen},rc);renderRecurring();
-    gs('updateRecurring',editId,rc).then(function(){toast('Recurrencia actualizada','ok');})
+    gs('updateRecurring',editId,rc).then(function(){toast('Recurrencia actualizada','ok');scheduleRecurAlerts();})
       .catch(function(){S.recurring[idx]=prev;renderRecurring();toast('No se pudo guardar','err');});
   }else{
     const temp=Object.assign({id:'tmp-'+Date.now(),lastGen:''},rc);
     S.recurring.push(temp);renderRecurring();
-    gs('addRecurring',rc).then(function(saved){const i=S.recurring.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.recurring[i]=saved;if(S.view==='recurring')renderRecurring();successFx();toast('Recurrencia creada','ok');})
+    gs('addRecurring',rc).then(function(saved){const i=S.recurring.findIndex(function(x){return x.id===temp.id;});if(i>=0&&saved)S.recurring[i]=saved;if(S.view==='recurring')renderRecurring();successFx();toast('Recurrencia creada','ok');scheduleRecurAlerts();})
       .catch(function(){S.recurring=S.recurring.filter(function(x){return x.id!==temp.id;});renderRecurring();toast('No se pudo guardar','err');});
   }
 }

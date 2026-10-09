@@ -4,4 +4,13 @@
     <string name="title_activity_main">Control Finanzas MS</string>
     <string name="package_name">com.florius.finanzas</string>
     <string name="custom_url_scheme">com.florius.finanzas</string>
+    <!-- Widget de la pantalla de inicio -->
+    <string name="fw_label">Control. F · Saldo</string>
+    <string name="fw_description">Tu saldo disponible y los ingresos y gastos del mes</string>
+    <string name="fw_available">Disponible</string>
+    <string name="fw_empty_balance">—</string>
+    <string name="fw_empty_hint">Abre la app para ver tu saldo</string>
+    <string name="fw_income">↓ Ingresos %1$s</string>
+    <string name="fw_expense">↑ Gastos %1$s</string>
+    <string name="fw_add">+ Agregar</string>
 </resources>
